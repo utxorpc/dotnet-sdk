@@ -1,3 +1,0 @@
-[submodule "src/spec"]
-	path = src/spec
-	url = https://github.com/utxorpc/spec

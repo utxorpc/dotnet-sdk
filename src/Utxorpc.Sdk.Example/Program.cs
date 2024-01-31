@@ -1,9 +1,9 @@
 ﻿using Google.Protobuf;
-using Grpc.Net.Client;
+using Utxorpc.Sdk;
 using Utxorpc.Sync.V1;
 
-var channel = GrpcChannel.ForAddress("http://localhost:50051");
-var chainSyncClient = new ChainSyncService.ChainSyncServiceClient(channel);
+var utxoRpcClient = new UtxorpcClient("http://localhost:50051");
+var chainSyncClient = utxoRpcClient.ChainSyncClient;
 
 var request = new FetchBlockRequest();
 request.Ref.Add(
