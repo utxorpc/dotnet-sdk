@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>Utxorpc.Sdk</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>clark@txpipe.io</Authors>
+    <Company>TxPipe LLC</Company>
+    <PackageDescription>A gRPC interface for UTxO Blockchains</PackageDescription>
+    <RepositoryUrl>https://github.com/utxorpc</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Utxorpc.Spec" Version="0.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" pack="true" PackagePath="." />
+  </ItemGroup>
+
+</Project>

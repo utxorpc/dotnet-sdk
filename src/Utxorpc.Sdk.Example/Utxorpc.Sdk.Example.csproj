@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\UTxORPC.NET\UTxORPC.NET.csproj" />
+    <ProjectReference Include="..\Utxorpc.Sdk\Utxorpc.Sdk.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
