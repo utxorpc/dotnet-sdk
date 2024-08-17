@@ -2,17 +2,6 @@
 using Utxorpc.Sdk.Models;
 using Utxorpc.Sdk.Models.Enums;
 
-// // Sync.FetchBlock Sample
-// var syncServiceClient = new SyncServiceClient("http://localhost:50051");
-
-// Block block = await syncServiceClient.FetchBlockAsync(
-//     "1dace9bc646e9225251db04ff27397c199b04ec3f83c94cad28c438c3e7eeb50",
-//     67823979
-// );
-
-// Console.WriteLine($"Block: {block.Hash} Slot: {block.Slot} Block Data Length: {block.NativeBytes.Length}");
-
-// Sync.FollowTip Sample
 SyncServiceClient? syncServiceClient = new("http://localhost:50051");
 
 await foreach (NextResponse? response in syncServiceClient.FollowTipAsync(
