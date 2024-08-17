@@ -17,44 +17,44 @@ public class SyncServiceClient(string url)
 
     public async Task<Block?> FetchBlockAsync(string hash, ulong index)
     {
-        var request = new FetchBlockRequest
+        FetchBlockRequest? request = new()
         {
             Ref = { DataUtils.ToSyncBlockRef(new BlockRef(hash, index)) }
         };
 
-        var response = await _client.FetchBlockAsync(request);
-        var anyChainBlock = response.Block.FirstOrDefault();
+        FetchBlockResponse? response = await _client.FetchBlockAsync(request);
+        AnyChainBlock? anyChainBlock = response.Block.FirstOrDefault();
         return DataUtils.FromAnyChainBlock(anyChainBlock);
     }
 
     public async IAsyncEnumerable<NextResponse> FollowTipAsync(string hash, ulong index)
     {
-        var request = new FollowTipRequest
+        FollowTipRequest? request = new()
         {
             Intersect = { DataUtils.ToSyncBlockRef(new BlockRef(hash, index)) }
         };
 
-        using var call = _client.FollowTip(request);
-        await foreach (var response in call.ResponseStream.ReadAllAsync())
+        using AsyncServerStreamingCall<FollowTipResponse>? call = _client.FollowTip(request);
+        await foreach (FollowTipResponse? response in call.ResponseStream.ReadAllAsync())
         {
             switch (response.ActionCase)
             {
                 case FollowTipResponse.ActionOneofCase.Apply:
-                    var applyBlock = DataUtils.FromAnyChainBlock(response.Apply);
+                    Block? applyBlock = DataUtils.FromAnyChainBlock(response.Apply);
                     if (applyBlock is not null)
                     {
                         yield return DataUtils.CreateApplyResponse(applyBlock);
                     }
                     break;
                 case FollowTipResponse.ActionOneofCase.Undo:
-                    var undoBlock = DataUtils.FromAnyChainBlock(response.Undo);
+                    Block? undoBlock = DataUtils.FromAnyChainBlock(response.Undo);
                     if (undoBlock is not null)
                     {
                         yield return DataUtils.CreateUndoResponse(undoBlock);
                     }
                     break;
                 case FollowTipResponse.ActionOneofCase.Reset:
-                    var resetRef = DataUtils.FromSyncBlockRef(response.Reset);
+                    BlockRef? resetRef = DataUtils.FromSyncBlockRef(response.Reset);
                     yield return DataUtils.CreateResetResponse(resetRef);
                     break;
             }
