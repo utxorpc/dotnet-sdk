@@ -5,8 +5,11 @@ using Utxorpc.Sdk.Models.Enums;
 SyncServiceClient? syncServiceClient = new("http://localhost:50051");
 
 await foreach (NextResponse? response in syncServiceClient.FollowTipAsync(
-    "1dace9bc646e9225251db04ff27397c199b04ec3f83c94cad28c438c3e7eeb50",
-    67823979))
+    new BlockRef
+    (
+        "1dace9bc646e9225251db04ff27397c199b04ec3f83c94cad28c438c3e7eeb50",
+        67823979
+    )))
 {
     Console.WriteLine("___________________");
     switch (response.Action)
