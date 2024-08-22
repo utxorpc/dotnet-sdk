@@ -21,7 +21,7 @@ The `Utxorpc.Sdk` provides a .NET interface for interacting with UTxO-based bloc
 To install the SDK, use the following command in the NuGet Package Manager:
 
 ```bash
-dotnet add package Utxorpc.Sdk --version 0.7.0-alpha
+dotnet add package Utxorpc.Sdk --version 1.0.0-alpha
 ```
 
 Alternatively, you can install it via the NuGet Package Manager in Visual Studio.
