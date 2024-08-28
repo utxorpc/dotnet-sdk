@@ -1,19 +1,27 @@
 <div align="center">
-  <h1 style="font-size: 3em;">Utxorpc.Sdk | .NET</h1>
+  <h1 style="font-size: 3em;">UTxORPC.Sdk | .NET</h1>
   <h4>A gRPC interface for UTxO Blockchains</h4>
 </div>
 <div align="center">
   <a href="https://www.nuget.org/packages/Utxorpc.Sdk/">
     <img src="https://img.shields.io/nuget/v/Utxorpc.Sdk.svg" alt="NuGet">
   </a>
+
+  ![Forks](https://img.shields.io/github/forks/utxorpc/dotnet-sdk.svg?style=social) 
+  ![Stars](https://img.shields.io/github/stars/utxorpc/dotnet-sdk.svg?style=social) 
+  ![Contributors](https://img.shields.io/github/contributors/utxorpc/dotnet-sdk.svg) 
+  ![Issues](https://img.shields.io/github/issues/utxorpc/dotnet-sdk.svg) 
+  ![Issues Closed](https://img.shields.io/github/issues-closed/utxorpc/dotnet-sdk.svg) 
+
 </div>
+
 
 The `Utxorpc.Sdk` provides a .NET interface for interacting with UTxO-based blockchains via gRPC. It simplifies the process of fetching blocks, following chain tips, and more, allowing developers to easily integrate blockchain data into their applications.
 
 ### Features
 
-- **Fetch Blocks**: Retrieve blocks by hash and index.
-- **Follow Chain Tips**: Stream real-time updates as new blocks are applied, undone, or when the chain is reset.
+- **FetchBlockAsync**: Retrieve blocks by hash and index.
+- **FollowTipAsync**: Stream real-time updates as new blocks are applied, undone, or when the chain is reset.
 - **Future Expansion**: Additional methods will be provided for watching transactions, submitting transactions, querying data, and more.
 
 ### Installation
@@ -64,10 +72,5 @@ else
 
 Contributions are welcome! Please fork the repository and submit a pull request. For major changes, please open an issue first to discuss what you would like to change.
 
-![Forks](https://img.shields.io/github/forks/utxorpc/dotnet-sdk.svg?style=social) 
-![Stars](https://img.shields.io/github/stars/utxorpc/dotnet-sdk.svg?style=social) 
-![Contributors](https://img.shields.io/github/contributors/utxorpc/dotnet-sdk.svg) 
-![Issues](https://img.shields.io/github/issues/utxorpc/dotnet-sdk.svg) 
-![Issues Closed](https://img.shields.io/github/issues-closed/utxorpc/dotnet-sdk.svg) 
 
 
