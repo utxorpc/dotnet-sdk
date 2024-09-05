@@ -2,13 +2,21 @@
 using Utxorpc.Sdk.Models;
 using Utxorpc.Sdk.Models.Enums;
 
-SyncServiceClient? syncServiceClient = new("http://localhost:50051");
+var headers = new Dictionary<string, string>
+{
+    { "dmtr-api-key", "dmtr_utxorpc1vc0m93rynmltysttwm7ns9m3n5cklws6" },
+};
 
-await foreach (NextResponse? response in syncServiceClient.FollowTipAsync(
+var client = new SyncServiceClient(
+    url: "https://preview.utxorpc-v0.demeter.run",
+    headers
+);
+
+await foreach (NextResponse? response in client.FollowTipAsync(
     new BlockRef
     (
-        "1dace9bc646e9225251db04ff27397c199b04ec3f83c94cad28c438c3e7eeb50",
-        67823979
+        "b977e548f3364b114505f3311a10f89e5f5cf47e815765bce6750a5de48e5951",
+        58717900
     )))
 {
     Console.WriteLine("___________________");
