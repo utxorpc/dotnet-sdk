@@ -79,7 +79,4 @@ public class SyncServiceClient
             }
         }
     }
-
-
-    // TODO: Implement DumpHistoryAsync 
 }

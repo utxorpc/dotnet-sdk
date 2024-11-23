@@ -4,19 +4,19 @@ using Utxorpc.Sdk.Models.Enums;
 
 var headers = new Dictionary<string, string>
 {
-    { "dmtr-api-key", "dmtr_utxorpc1vc0m93rynmltysttwm7ns9m3n5cklws6" },
+    { "dmtr-api-key", "your-api-key" },
 };
 
 var client = new SyncServiceClient(
-    url: "https://preview.utxorpc-v0.demeter.run",
+    url: "http://localhost:50051",
     headers
 );
 
 await foreach (NextResponse? response in client.FollowTipAsync(
     new BlockRef
     (
-        "b977e548f3364b114505f3311a10f89e5f5cf47e815765bce6750a5de48e5951",
-        58717900
+        "e59489fecba33c244e1e28788ed596f2f2ac3336dd9557271f51dfbd5691be4b",
+        65467722
     )))
 {
     Console.WriteLine("___________________");
