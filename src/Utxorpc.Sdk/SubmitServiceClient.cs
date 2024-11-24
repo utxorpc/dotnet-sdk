@@ -28,5 +28,4 @@ public class SubmitServiceClient
         var channel = GrpcChannel.ForAddress(url, channelOptions);
         _client = new SubmitService.SubmitServiceClient(channel);
     }
-    // TODO: Implement EvalTx, ReadMempool, SubmitTx, WaitForTx, WatchMempool methods
 }

@@ -1,3 +1,4 @@
+using Google.Protobuf;
 using Grpc.Net.Client;
 using Utxorpc.V1alpha.Query;
 
@@ -28,6 +29,31 @@ public class QueryServiceClient
         var channel = GrpcChannel.ForAddress(url, channelOptions);
         _client = new QueryService.QueryServiceClient(channel);
     }
+    
+    public async Task<SearchUtxosResponse> SearchUtxosAsync(byte[] address, string? start_token = null)
+    {
+        SearchUtxosRequest request = new()
+        {
+            Predicate = new()
+            {
+                Match = new()
+                {
+                    Cardano = new()
+                    {
+                        Address = new ()
+                        {
+                            ExactAddress = ByteString.CopyFrom(address)
+                        }
+                    }
+                }
+            },
+        };
 
-    // TODO: Implement ReadData, ReadParams, ReadUtxos, SearchUtxos methods
+        if (start_token != null)
+        {
+            request.StartToken = start_token;
+        }
+
+        return await _client.SearchUtxosAsync(request);
+    }
 }
