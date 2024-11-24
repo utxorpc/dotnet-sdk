@@ -16,7 +16,7 @@ public class SyncServiceClient
     {
         var httpClientHandler = new HttpClientHandler();
         var httpClient = new HttpClient(httpClientHandler);
-        
+
         if (headers != null)
         {
             foreach (var header in headers)
@@ -36,7 +36,7 @@ public class SyncServiceClient
 
     public async Task<Block?> FetchBlockAsync(BlockRef blockRef)
     {
-        FetchBlockRequest? request = new()
+        FetchBlockRequest request = new()
         {
             Ref = { DataUtils.ToSyncBlockRef(blockRef) }
         };
@@ -46,12 +46,19 @@ public class SyncServiceClient
         return DataUtils.FromAnyChainBlock(anyChainBlock);
     }
 
-    public async IAsyncEnumerable<NextResponse> FollowTipAsync(BlockRef blockRef)
+    public async IAsyncEnumerable<NextResponse> FollowTipAsync(BlockRef? blockRef = null)
     {
-        FollowTipRequest? request = new()
+
+        FollowTipRequest request;
+
+        if (blockRef is not null)
         {
-            Intersect = { DataUtils.ToSyncBlockRef(blockRef) }
-        };
+            request = new() { Intersect = { DataUtils.ToSyncBlockRef(blockRef) } };
+        }
+        else
+        {
+            request = new();
+        }
 
         using AsyncServerStreamingCall<FollowTipResponse>? call = _client.FollowTip(request);
         await foreach (FollowTipResponse? response in call.ResponseStream.ReadAllAsync())
