@@ -1,10 +1,7 @@
-using Google.Protobuf;
-using Utxorpc.V1alpha.Cardano;
-using Utxorpc.V1alpha.Sync;
-
 namespace Utxorpc.Sdk.Models;
+
 public record Block(
-    string Hash, 
-    ulong Slot, 
-    byte[] NativeBytes
+    string? Hash,        // Nullable - field mask aware
+    ulong? Slot,         // Nullable - field mask aware
+    byte[]? NativeBytes  // Nullable - field mask aware
 );
