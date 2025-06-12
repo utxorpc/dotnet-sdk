@@ -90,13 +90,15 @@ public class QueryServiceClient
                 break;
 
             case AssetPredicate assetPredicate:
-                AssetPattern assetPattern = new()
+                AssetPattern assetPattern = new();
+                switch (assetPredicate.AssetSearch)
                 {
-                    PolicyId = ByteString.CopyFrom(assetPredicate.PolicyId)
-                };
-                if (assetPredicate.AssetName != null)
-                {
-                    assetPattern.AssetName = ByteString.CopyFrom(assetPredicate.AssetName);
+                    case AssetSearchType.PolicyId:
+                        assetPattern.PolicyId = ByteString.CopyFrom(assetPredicate.Asset);
+                        break;
+                    case AssetSearchType.AssetName:
+                        assetPattern.AssetName = ByteString.CopyFrom(assetPredicate.Asset);
+                        break;
                 }
                 request.Predicate.Match.Cardano.Asset = assetPattern;
                 break;
@@ -127,7 +129,4 @@ public class QueryServiceClient
         };
         return await _client.ReadParamsAsync(request);
     }
-
-
-
 }

@@ -10,6 +10,6 @@ public record AddressPredicate(
 ) : Predicate;
 
 public record AssetPredicate(
-    byte[]? PolicyId,
-    byte[]? AssetName = null
+    byte[]? Asset,
+    AssetSearchType? AssetSearch
 ) : Predicate;
