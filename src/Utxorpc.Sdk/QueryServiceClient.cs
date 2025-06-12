@@ -1,5 +1,9 @@
 using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
 using Grpc.Net.Client;
+using Utxorpc.Sdk.Models;
+using Utxorpc.Sdk.Models.Enums;
+using Utxorpc.V1alpha.Cardano;
 using Utxorpc.V1alpha.Query;
 
 namespace Utxorpc.Sdk;
@@ -12,7 +16,7 @@ public class QueryServiceClient
     {
         var httpClientHandler = new HttpClientHandler();
         var httpClient = new HttpClient(httpClientHandler);
-        
+
         if (headers != null)
         {
             foreach (var header in headers)
@@ -29,8 +33,30 @@ public class QueryServiceClient
         var channel = GrpcChannel.ForAddress(url, channelOptions);
         _client = new QueryService.QueryServiceClient(channel);
     }
-    
-    public async Task<SearchUtxosResponse> SearchUtxosAsync(byte[] address, string? start_token = null)
+
+    public async Task<ReadUtxosResponse> ReadUtxosAsync(Models.TxoRef[] keys, FieldMask? fieldMask = null)
+    {
+        var request = new ReadUtxosRequest();
+
+        foreach (var key in keys)
+        {
+            var protoRef = new V1alpha.Query.TxoRef
+            {
+                Hash = ByteString.CopyFrom(key.Hash),
+                Index = (uint)key.Index
+            };
+            request.Keys.Add(protoRef);
+        }
+
+        if (fieldMask != null)
+        {
+            request.FieldMask = fieldMask;
+        }
+
+        return await _client.ReadUtxosAsync(request);
+    }
+
+    public async Task<SearchUtxosResponse> SearchUtxosAsync(Predicate predicate, uint maxItems, FieldMask? fieldMask, string? start_token = null)
     {
         SearchUtxosRequest request = new()
         {
@@ -39,15 +65,53 @@ public class QueryServiceClient
                 Match = new()
                 {
                     Cardano = new()
-                    {
-                        Address = new ()
-                        {
-                            ExactAddress = ByteString.CopyFrom(address)
-                        }
-                    }
                 }
             },
+            MaxItems = (int)maxItems
         };
+
+        switch (predicate)
+        {
+            case AddressPredicate addressPredicate:
+                Console.WriteLine($"Searching UTXOs for address of length {addressPredicate.Address?.Length} bytes using {addressPredicate.AddressSearch}");
+
+                var addressPattern = new AddressPattern();
+                switch (addressPredicate.AddressSearch)
+                {
+                    case AddressSearchType.ExactAddress:
+                        addressPattern.ExactAddress = ByteString.CopyFrom(addressPredicate.Address);
+                        break;
+                    case AddressSearchType.PaymentPart:
+                        addressPattern.PaymentPart = ByteString.CopyFrom(addressPredicate.Address);
+                        break;
+                    case AddressSearchType.DelegationPart:
+                        addressPattern.DelegationPart = ByteString.CopyFrom(addressPredicate.Address);
+                        break;
+                }
+                request.Predicate.Match.Cardano.Address = addressPattern;
+                break;
+
+            case AssetPredicate assetPredicate:
+                Console.WriteLine($"Searching UTXOs for asset with policy ID of length {assetPredicate.PolicyId?.Length} bytes");
+
+                var assetPattern = new AssetPattern();
+                assetPattern.PolicyId = ByteString.CopyFrom(assetPredicate.PolicyId);
+                if (assetPredicate.AssetName != null)
+                {
+                    assetPattern.AssetName = ByteString.CopyFrom(assetPredicate.AssetName);
+                    Console.WriteLine($"  and asset name of length {assetPredicate.AssetName.Length} bytes");
+                }
+                request.Predicate.Match.Cardano.Asset = assetPattern;
+                break;
+
+            default:
+                throw new ArgumentException($"Unsupported predicate type: {predicate.GetType().Name}");
+        }
+
+        if (fieldMask != null)
+        {
+            request.FieldMask = fieldMask;
+        }
 
         if (start_token != null)
         {
@@ -56,4 +120,17 @@ public class QueryServiceClient
 
         return await _client.SearchUtxosAsync(request);
     }
+
+
+    public async Task<ReadParamsResponse> ReadParamsAsync(FieldMask? fieldMask)
+    {
+        ReadParamsRequest request = new()
+        {
+            FieldMask = fieldMask
+        };
+        return await _client.ReadParamsAsync(request);
+    }
+
+
+
 }
