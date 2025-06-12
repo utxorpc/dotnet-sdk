@@ -34,13 +34,13 @@ public class QueryServiceClient
         _client = new QueryService.QueryServiceClient(channel);
     }
 
-    public async Task<ReadUtxosResponse> ReadUtxosAsync(Models.TxoRef[] keys, FieldMask? fieldMask = null)
+    public async Task<ReadUtxosResponse> ReadUtxosAsync(Models.TxoRef[] keys, FieldMask? fieldMask)
     {
-        var request = new ReadUtxosRequest();
+        ReadUtxosRequest request = new();
 
         foreach (var key in keys)
         {
-            var protoRef = new V1alpha.Query.TxoRef
+            V1alpha.Query.TxoRef protoRef = new()
             {
                 Hash = ByteString.CopyFrom(key.Hash),
                 Index = (uint)key.Index
@@ -72,10 +72,8 @@ public class QueryServiceClient
 
         switch (predicate)
         {
-            case AddressPredicate addressPredicate:
-                Console.WriteLine($"Searching UTXOs for address of length {addressPredicate.Address?.Length} bytes using {addressPredicate.AddressSearch}");
-
-                var addressPattern = new AddressPattern();
+            case AddressPredicate addressPredicate:  
+                AddressPattern addressPattern = new ();
                 switch (addressPredicate.AddressSearch)
                 {
                     case AddressSearchType.ExactAddress:
@@ -92,14 +90,13 @@ public class QueryServiceClient
                 break;
 
             case AssetPredicate assetPredicate:
-                Console.WriteLine($"Searching UTXOs for asset with policy ID of length {assetPredicate.PolicyId?.Length} bytes");
-
-                var assetPattern = new AssetPattern();
-                assetPattern.PolicyId = ByteString.CopyFrom(assetPredicate.PolicyId);
+                AssetPattern assetPattern = new()
+                {
+                    PolicyId = ByteString.CopyFrom(assetPredicate.PolicyId)
+                };
                 if (assetPredicate.AssetName != null)
                 {
                     assetPattern.AssetName = ByteString.CopyFrom(assetPredicate.AssetName);
-                    Console.WriteLine($"  and asset name of length {assetPredicate.AssetName.Length} bytes");
                 }
                 request.Predicate.Match.Cardano.Asset = assetPattern;
                 break;
