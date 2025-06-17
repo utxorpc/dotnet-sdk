@@ -5,18 +5,23 @@ using BlockRef = Utxorpc.Sdk.Models.BlockRef;
 using SpecSyncBlockRef = Utxorpc.V1alpha.Sync.BlockRef;
 using SpecWatchBlockRef = Utxorpc.V1alpha.Watch.BlockRef;
 using Block = Utxorpc.Sdk.Models.Block;
-using Utxorpc.V1alpha.Sync;
+using SpecSync = Utxorpc.V1alpha.Sync;
+using SpecWatchTxResponse = Utxorpc.V1alpha.Watch.WatchTxResponse;
+using SpecWatch = Utxorpc.V1alpha.Watch;
+using WatchTxResponse = Utxorpc.Sdk.Models.WatchTxResponse;
+using SpecCardano = Utxorpc.V1alpha.Cardano;
+
 
 namespace Utxorpc.Sdk.Utils;
 
 public static class DataUtils
 {
     // Block conversion methods
-    public static Block? FromAnyChainBlock(AnyChainBlock? anyChainBlock)
+    public static Block? FromAnyChainBlock(SpecSync.AnyChainBlock? anyChainBlock)
     {
         if (anyChainBlock?.Cardano != null)
         {
-            var cardanoBlock = anyChainBlock.Cardano;
+            SpecCardano.Block cardanoBlock = anyChainBlock.Cardano;
             return new Block(
                 Convert.ToHexString(cardanoBlock.Header.Hash.ToByteArray()),
                 cardanoBlock.Header.Slot,
@@ -70,4 +75,41 @@ public static class DataUtils
 
     public static NextResponse CreateResetResponse(BlockRef blockRef) => 
         new(NextResponseAction.Reset, ResetRef: blockRef);
+
+
+    // Watch service conversion methods
+    public static WatchTxResponse FromSpecWatchTxResponse(SpecWatchTxResponse specResponse)
+    {
+        WatchTxAction action;
+        SpecWatch.AnyChainTx? tx;
+        
+        switch (specResponse.ActionCase)
+        {
+            case SpecWatchTxResponse.ActionOneofCase.Apply:
+                action = WatchTxAction.Apply;
+                tx = specResponse.Apply;
+                break;
+            case SpecWatchTxResponse.ActionOneofCase.Undo:
+                action = WatchTxAction.Undo;
+                tx = specResponse.Undo;
+                break;
+            default:
+                throw new InvalidOperationException($"Unknown WatchTxResponse action: {specResponse.ActionCase}");
+        }
+        
+        byte[]? raw = null;
+        object? parsedState = null;
+        
+        if (tx is not null)
+        {
+            parsedState = tx.ChainCase switch
+            {
+                SpecWatch.AnyChainTx.ChainOneofCase.Cardano => tx.Cardano,
+                _ => throw new InvalidOperationException($"Unsupported chain type: {tx.ChainCase}"),
+            };
+        }
+        
+        return new WatchTxResponse(action, raw, parsedState);
+    }
 }
+
