@@ -86,7 +86,7 @@ public static class DataUtils
     public static SubmitTxResponse FromSpecSubmitTxResponse(SpecSubmitTxResponse specResponse)
     {
         return new SubmitTxResponse(
-            specResponse.Ref.Select(r => r.ToByteArray()).ToList()
+            [.. specResponse.Ref.Select(r => r.ToByteArray())]
         );
     }
 
