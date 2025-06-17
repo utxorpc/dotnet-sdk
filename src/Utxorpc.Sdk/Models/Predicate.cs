@@ -1,7 +1,7 @@
 using Utxorpc.Sdk.Models.Enums;
 using Utxorpc.V1alpha.Query;
-using Utxorpc.V1alpha.Submit;
-using Utxorpc.V1alpha.Watch;
+using SpecSubmit = Utxorpc.V1alpha.Submit;
+using SpecWatch = Utxorpc.V1alpha.Watch;
 using Utxorpc.V1alpha.Cardano;
 
 namespace Utxorpc.Sdk.Models;
@@ -9,14 +9,14 @@ namespace Utxorpc.Sdk.Models;
 public abstract record Predicate
 {
     public abstract UtxoPredicate ToUtxoPredicate();
-    public abstract V1alpha.Submit.TxPredicate ToTxPredicate();
-    public abstract V1alpha.Watch.TxPredicate ToWatchTxPredicate();
+    public abstract SpecSubmit.TxPredicate ToTxPredicate();
+    public abstract SpecWatch.TxPredicate ToWatchTxPredicate();
 }
 
 public record MatchPredicate(
     Action<AnyUtxoPattern> ConfigureMatch,
-    Action<V1alpha.Submit.AnyChainTxPattern>? ConfigureTxMatch = null,
-    Action<V1alpha.Watch.AnyChainTxPattern>? ConfigureWatchTxMatch = null
+    Action<SpecSubmit.AnyChainTxPattern>? ConfigureTxMatch = null,
+    Action<SpecWatch.AnyChainTxPattern>? ConfigureWatchTxMatch = null
 ) : Predicate
 {
     public override UtxoPredicate ToUtxoPredicate()
@@ -29,11 +29,11 @@ public record MatchPredicate(
         return predicate;
     }
     
-    public override V1alpha.Submit.TxPredicate ToTxPredicate()
+    public override SpecSubmit.TxPredicate ToTxPredicate()
     {
-        V1alpha.Submit.TxPredicate predicate = new()
+        SpecSubmit.TxPredicate predicate = new()
         {
-            Match = new V1alpha.Submit.AnyChainTxPattern()
+            Match = new SpecSubmit.AnyChainTxPattern()
         };
         
         if (ConfigureTxMatch != null)
@@ -48,11 +48,11 @@ public record MatchPredicate(
         return predicate;
     }
     
-    public override V1alpha.Watch.TxPredicate ToWatchTxPredicate()
+    public override SpecWatch.TxPredicate ToWatchTxPredicate()
     {
-        V1alpha.Watch.TxPredicate predicate = new()
+        SpecWatch.TxPredicate predicate = new()
         {
-            Match = new V1alpha.Watch.AnyChainTxPattern()
+            Match = new SpecWatch.AnyChainTxPattern()
         };
         
         if (ConfigureWatchTxMatch != null)
@@ -87,9 +87,9 @@ public record NotPredicate(
         return predicate;
     }
     
-    public override V1alpha.Submit.TxPredicate ToTxPredicate()
+    public override SpecSubmit.TxPredicate ToTxPredicate()
     {
-        V1alpha.Submit.TxPredicate predicate = new();
+        SpecSubmit.TxPredicate predicate = new();
         foreach (Predicate p in Predicates)
         {
             predicate.Not.Add(p.ToTxPredicate());
@@ -97,9 +97,9 @@ public record NotPredicate(
         return predicate;
     }
     
-    public override V1alpha.Watch.TxPredicate ToWatchTxPredicate()
+    public override SpecWatch.TxPredicate ToWatchTxPredicate()
     {
-        V1alpha.Watch.TxPredicate predicate = new();
+        SpecWatch.TxPredicate predicate = new();
         foreach (Predicate p in Predicates)
         {
             predicate.Not.Add(p.ToWatchTxPredicate());
@@ -122,9 +122,9 @@ public record AllOfPredicate(
         return predicate;
     }
     
-    public override V1alpha.Submit.TxPredicate ToTxPredicate()
+    public override SpecSubmit.TxPredicate ToTxPredicate()
     {
-        V1alpha.Submit.TxPredicate predicate = new();
+        SpecSubmit.TxPredicate predicate = new();
         foreach (Predicate p in Predicates)
         {
             predicate.AllOf.Add(p.ToTxPredicate());
@@ -132,9 +132,9 @@ public record AllOfPredicate(
         return predicate;
     }
     
-    public override V1alpha.Watch.TxPredicate ToWatchTxPredicate()
+    public override SpecWatch.TxPredicate ToWatchTxPredicate()
     {
-        V1alpha.Watch.TxPredicate predicate = new();
+        SpecWatch.TxPredicate predicate = new();
         foreach (Predicate p in Predicates)
         {
             predicate.AllOf.Add(p.ToWatchTxPredicate());
@@ -157,9 +157,9 @@ public record AnyOfPredicate(
         return predicate;
     }
     
-    public override V1alpha.Submit.TxPredicate ToTxPredicate()
+    public override SpecSubmit.TxPredicate ToTxPredicate()
     {
-        V1alpha.Submit.TxPredicate predicate = new();
+        SpecSubmit.TxPredicate predicate = new();
         foreach (Predicate p in Predicates)
         {
             predicate.AnyOf.Add(p.ToTxPredicate());
@@ -167,9 +167,9 @@ public record AnyOfPredicate(
         return predicate;
     }
     
-    public override V1alpha.Watch.TxPredicate ToWatchTxPredicate()
+    public override SpecWatch.TxPredicate ToWatchTxPredicate()
     {
-        V1alpha.Watch.TxPredicate predicate = new();
+        SpecWatch.TxPredicate predicate = new();
         foreach (Predicate p in Predicates)
         {
             predicate.AnyOf.Add(p.ToWatchTxPredicate());
@@ -212,11 +212,11 @@ public record AddressPredicate(
         return predicate;
     }
     
-    public override V1alpha.Submit.TxPredicate ToTxPredicate()
+    public override SpecSubmit.TxPredicate ToTxPredicate()
     {
-        V1alpha.Submit.TxPredicate predicate = new()
+        SpecSubmit.TxPredicate predicate = new()
         {
-            Match = new V1alpha.Submit.AnyChainTxPattern
+            Match = new SpecSubmit.AnyChainTxPattern
             {
                 Cardano = new TxPattern()
             }
@@ -242,11 +242,11 @@ public record AddressPredicate(
         return predicate;
     }
     
-    public override V1alpha.Watch.TxPredicate ToWatchTxPredicate()
+    public override SpecWatch.TxPredicate ToWatchTxPredicate()
     {
-        V1alpha.Watch.TxPredicate predicate = new()
+        SpecWatch.TxPredicate predicate = new()
         {
-            Match = new V1alpha.Watch.AnyChainTxPattern
+            Match = new SpecWatch.AnyChainTxPattern
             {
                 Cardano = new TxPattern()
             }
@@ -304,11 +304,11 @@ public record AssetPredicate(
         return predicate;
     }
     
-    public override V1alpha.Submit.TxPredicate ToTxPredicate()
+    public override SpecSubmit.TxPredicate ToTxPredicate()
     {
-        V1alpha.Submit.TxPredicate predicate = new()
+        SpecSubmit.TxPredicate predicate = new()
         {
-            Match = new V1alpha.Submit.AnyChainTxPattern
+            Match = new SpecSubmit.AnyChainTxPattern
             {
                 Cardano = new TxPattern()
             }
@@ -331,11 +331,11 @@ public record AssetPredicate(
         return predicate;
     }
     
-    public override V1alpha.Watch.TxPredicate ToWatchTxPredicate()
+    public override SpecWatch.TxPredicate ToWatchTxPredicate()
     {
-        V1alpha.Watch.TxPredicate predicate = new()
+        SpecWatch.TxPredicate predicate = new()
         {
-            Match = new V1alpha.Watch.AnyChainTxPattern
+            Match = new SpecWatch.AnyChainTxPattern
             {
                 Cardano = new TxPattern()
             }
