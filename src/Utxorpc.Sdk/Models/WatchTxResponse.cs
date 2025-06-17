@@ -1,6 +1,9 @@
+using Utxorpc.Sdk.Models.Enums;
+
 namespace Utxorpc.Sdk.Models;
 
 public record WatchTxResponse(
+    WatchTxAction Action,
     byte[]? Raw,
-    object? ParsedState = null  // Will hold chain-specific data (e.g., Cardano.Tx)
+    object? ParsedState = null
 );
