@@ -3,6 +3,7 @@ using Google.Protobuf.WellKnownTypes;
 using Grpc.Net.Client;
 using Utxorpc.Sdk.Models;
 using Utxorpc.Sdk.Models.Enums;
+using Utxorpc.Sdk.Utils;
 using Utxorpc.V1alpha.Cardano;
 using Utxorpc.V1alpha.Query;
 
@@ -34,18 +35,21 @@ public class QueryServiceClient
         _client = new QueryService.QueryServiceClient(channel);
     }
 
-    public async Task<ReadUtxosResponse> ReadUtxosAsync(Models.TxoRef[] keys, FieldMask? fieldMask)
+    public async Task<Models.ReadUtxosResponse> ReadUtxosAsync(Models.TxoRef[] keys, FieldMask? fieldMask)
     {
         ReadUtxosRequest request = new();
 
         foreach (var key in keys)
         {
-            V1alpha.Query.TxoRef protoRef = new()
+            if (key.Hash != null && key.Index.HasValue)
             {
-                Hash = ByteString.CopyFrom(key.Hash),
-                Index = (uint)key.Index
-            };
-            request.Keys.Add(protoRef);
+                V1alpha.Query.TxoRef protoRef = new()
+                {
+                    Hash = ByteString.CopyFrom(key.Hash),
+                    Index = (uint)key.Index.Value
+                };
+                request.Keys.Add(protoRef);
+            }
         }
 
         if (fieldMask != null)
@@ -53,10 +57,11 @@ public class QueryServiceClient
             request.FieldMask = fieldMask;
         }
 
-        return await _client.ReadUtxosAsync(request);
+        var response = await _client.ReadUtxosAsync(request);
+        return DataUtils.FromSpecReadUtxosResponse(response);
     }
 
-    public async Task<SearchUtxosResponse> SearchUtxosAsync(Predicate predicate, uint maxItems, FieldMask? fieldMask, string? start_token = null)
+    public async Task<Models.SearchUtxosResponse> SearchUtxosAsync(Predicate predicate, uint maxItems, FieldMask? fieldMask, string? start_token = null)
     {
         SearchUtxosRequest request = new()
         {
@@ -117,16 +122,18 @@ public class QueryServiceClient
             request.StartToken = start_token;
         }
 
-        return await _client.SearchUtxosAsync(request);
+        var response = await _client.SearchUtxosAsync(request);
+        return DataUtils.FromSpecSearchUtxosResponse(response);
     }
 
 
-    public async Task<ReadParamsResponse> ReadParamsAsync(FieldMask? fieldMask)
+    public async Task<Models.ReadParamsResponse> ReadParamsAsync(FieldMask? fieldMask)
     {
         ReadParamsRequest request = new()
         {
             FieldMask = fieldMask
         };
-        return await _client.ReadParamsAsync(request);
+        var response = await _client.ReadParamsAsync(request);
+        return DataUtils.FromSpecReadParamsResponse(response);
     }
 }

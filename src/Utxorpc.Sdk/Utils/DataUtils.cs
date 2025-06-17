@@ -6,6 +6,31 @@ using SpecSyncBlockRef = Utxorpc.V1alpha.Sync.BlockRef;
 using SpecWatchBlockRef = Utxorpc.V1alpha.Watch.BlockRef;
 using Block = Utxorpc.Sdk.Models.Block;
 using Utxorpc.V1alpha.Sync;
+using SpecTxoRef = Utxorpc.V1alpha.Query.TxoRef;
+using TxoRef = Utxorpc.Sdk.Models.TxoRef;
+using SpecChainPoint = Utxorpc.V1alpha.Query.ChainPoint;
+using ChainPoint = Utxorpc.Sdk.Models.ChainPoint;
+using SpecAnyUtxoData = Utxorpc.V1alpha.Query.AnyUtxoData;
+using AnyUtxoData = Utxorpc.Sdk.Models.AnyUtxoData;
+using SpecAnyChainParams = Utxorpc.V1alpha.Query.AnyChainParams;
+using AnyChainParams = Utxorpc.Sdk.Models.AnyChainParams;
+using SpecReadUtxosResponse = Utxorpc.V1alpha.Query.ReadUtxosResponse;
+using ReadUtxosResponse = Utxorpc.Sdk.Models.ReadUtxosResponse;
+using SpecSearchUtxosResponse = Utxorpc.V1alpha.Query.SearchUtxosResponse;
+using SearchUtxosResponse = Utxorpc.Sdk.Models.SearchUtxosResponse;
+using SpecReadParamsResponse = Utxorpc.V1alpha.Query.ReadParamsResponse;
+using ReadParamsResponse = Utxorpc.Sdk.Models.ReadParamsResponse;
+using SpecSubmitTxResponse = Utxorpc.V1alpha.Submit.SubmitTxResponse;
+using SubmitTxResponse = Utxorpc.Sdk.Models.SubmitTxResponse;
+using SpecWaitForTxResponse = Utxorpc.V1alpha.Submit.WaitForTxResponse;
+using WaitForTxResponse = Utxorpc.Sdk.Models.WaitForTxResponse;
+using SpecWatchMempoolResponse = Utxorpc.V1alpha.Submit.WatchMempoolResponse;
+using WatchMempoolResponse = Utxorpc.Sdk.Models.WatchMempoolResponse;
+using SpecWatchTxResponse = Utxorpc.V1alpha.Watch.WatchTxResponse;
+using SpecTxInMempool = Utxorpc.V1alpha.Submit.TxInMempool;
+using TxInMempool = Utxorpc.Sdk.Models.TxInMempool;
+using SpecStage = Utxorpc.V1alpha.Submit.Stage;
+using Stage = Utxorpc.Sdk.Models.Enums.Stage;
 
 namespace Utxorpc.Sdk.Utils;
 
@@ -70,4 +95,141 @@ public static class DataUtils
 
     public static NextResponse CreateResetResponse(BlockRef blockRef) => 
         new(NextResponseAction.Reset, ResetRef: blockRef);
+
+    // Query conversion methods
+    public static TxoRef? FromSpecTxoRef(SpecTxoRef? specTxoRef)
+    {
+        if (specTxoRef == null) return null;
+        
+        return new TxoRef(
+            specTxoRef.Hash.ToByteArray(),
+            specTxoRef.Index
+        );
+    }
+
+    public static ChainPoint? FromSpecChainPoint(SpecChainPoint? specChainPoint)
+    {
+        if (specChainPoint == null) return null;
+        
+        return new ChainPoint(
+            specChainPoint.Slot,
+            specChainPoint.Hash.ToByteArray()
+        );
+    }
+
+    public static AnyUtxoData? FromSpecAnyUtxoData(SpecAnyUtxoData? specUtxoData)
+    {
+        if (specUtxoData == null) return null;
+        
+        return new AnyUtxoData(
+            specUtxoData.NativeBytes.ToByteArray(),
+            FromSpecTxoRef(specUtxoData.TxoRef),
+            specUtxoData.ParsedStateCase == SpecAnyUtxoData.ParsedStateOneofCase.Cardano ? specUtxoData.Cardano : null
+        );
+    }
+
+    public static AnyChainParams? FromSpecAnyChainParams(SpecAnyChainParams? specChainParams)
+    {
+        if (specChainParams == null) return null;
+        
+        return new AnyChainParams(
+            specChainParams.ParamsCase == SpecAnyChainParams.ParamsOneofCase.Cardano ? specChainParams.Cardano : null
+        );
+    }
+
+    public static ReadUtxosResponse FromSpecReadUtxosResponse(SpecReadUtxosResponse specResponse)
+    {
+        var items = specResponse.Items.Select(FromSpecAnyUtxoData).Where(x => x != null).Cast<AnyUtxoData>().ToList();
+        return new ReadUtxosResponse(
+            items,
+            FromSpecChainPoint(specResponse.LedgerTip)
+        );
+    }
+
+    public static SearchUtxosResponse FromSpecSearchUtxosResponse(SpecSearchUtxosResponse specResponse)
+    {
+        var items = specResponse.Items.Select(FromSpecAnyUtxoData).Where(x => x != null).Cast<AnyUtxoData>().ToList();
+        return new SearchUtxosResponse(
+            items,
+            FromSpecChainPoint(specResponse.LedgerTip),
+            specResponse.NextToken
+        );
+    }
+
+    public static ReadParamsResponse FromSpecReadParamsResponse(SpecReadParamsResponse specResponse)
+    {
+        return new ReadParamsResponse(
+            FromSpecAnyChainParams(specResponse.Values),
+            FromSpecChainPoint(specResponse.LedgerTip)
+        );
+    }
+
+    // Submit service conversion methods
+    public static SubmitTxResponse FromSpecSubmitTxResponse(SpecSubmitTxResponse specResponse)
+    {
+        return new SubmitTxResponse(
+            specResponse.Ref.Select(r => r.ToByteArray()).ToList()
+        );
+    }
+
+    public static WaitForTxResponse FromSpecWaitForTxResponse(SpecWaitForTxResponse specResponse)
+    {
+        return new WaitForTxResponse(
+            specResponse.Ref?.ToByteArray(),
+            FromSpecStage(specResponse.Stage)
+        );
+    }
+
+    public static WatchMempoolResponse FromSpecWatchMempoolResponse(SpecWatchMempoolResponse specResponse)
+    {
+        return new WatchMempoolResponse(
+            FromSpecTxInMempool(specResponse.Tx)
+        );
+    }
+
+    public static TxInMempool? FromSpecTxInMempool(SpecTxInMempool? specTxInMempool)
+    {
+        if (specTxInMempool == null) return null;
+
+        return new TxInMempool(
+            specTxInMempool.Ref?.ToByteArray(),
+            specTxInMempool.NativeBytes?.ToByteArray(),
+            FromSpecStage(specTxInMempool.Stage),
+            specTxInMempool.ParsedStateCase == SpecTxInMempool.ParsedStateOneofCase.Cardano 
+                ? new AnyUtxoData(
+                    specTxInMempool.NativeBytes?.ToByteArray() ?? Array.Empty<byte>(),
+                    null,
+                    specTxInMempool.Cardano
+                ) 
+                : null
+        );
+    }
+
+    public static Stage FromSpecStage(SpecStage specStage)
+    {
+        return specStage switch
+        {
+            SpecStage.Unspecified => Stage.Unspecified,
+            SpecStage.Acknowledged => Stage.Acknowledged,
+            SpecStage.Mempool => Stage.Mempool,
+            SpecStage.Network => Stage.Network,
+            SpecStage.Confirmed => Stage.Confirmed,
+            _ => Stage.Unspecified
+        };
+    }
+
+    // Watch service conversion methods
+    public static Models.WatchTxResponse FromSpecWatchTxResponse(SpecWatchTxResponse specResponse)
+    {
+        var tx = specResponse.Apply;
+        
+        object? parsedState = null;
+        
+        if (tx != null && tx.ChainCase == Utxorpc.V1alpha.Watch.AnyChainTx.ChainOneofCase.Cardano)
+        {
+            parsedState = tx.Cardano;
+        }
+        
+        return new Models.WatchTxResponse(null, parsedState);
+    }
 }
