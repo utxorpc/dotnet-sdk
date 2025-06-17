@@ -15,23 +15,23 @@ public class QueryServiceClient
 
     public QueryServiceClient(string url, IDictionary<string, string>? headers = null)
     {
-        var httpClientHandler = new HttpClientHandler();
-        var httpClient = new HttpClient(httpClientHandler);
+        HttpClientHandler httpClientHandler = new HttpClientHandler();
+        HttpClient httpClient = new HttpClient(httpClientHandler);
 
         if (headers != null)
         {
-            foreach (var header in headers)
+            foreach (KeyValuePair<string, string> header in headers)
             {
                 httpClient.DefaultRequestHeaders.Add(header.Key, header.Value);
             }
         }
 
-        var channelOptions = new GrpcChannelOptions
+        GrpcChannelOptions channelOptions = new GrpcChannelOptions
         {
             HttpClient = httpClient
         };
 
-        var channel = GrpcChannel.ForAddress(url, channelOptions);
+        GrpcChannel channel = GrpcChannel.ForAddress(url, channelOptions);
         _client = new QueryService.QueryServiceClient(channel);
     }
 
@@ -39,7 +39,7 @@ public class QueryServiceClient
     {
         ReadUtxosRequest request = new();
 
-        foreach (var key in keys)
+        foreach (Models.TxoRef key in keys)
         {
             if (key.Hash != null && key.Index.HasValue)
             {
@@ -57,7 +57,7 @@ public class QueryServiceClient
             request.FieldMask = fieldMask;
         }
 
-        var response = await _client.ReadUtxosAsync(request);
+        V1alpha.Query.ReadUtxosResponse response = await _client.ReadUtxosAsync(request);
         return DataUtils.FromSpecReadUtxosResponse(response);
     }
 
@@ -65,52 +65,9 @@ public class QueryServiceClient
     {
         SearchUtxosRequest request = new()
         {
-            Predicate = new()
-            {
-                Match = new()
-                {
-                    Cardano = new()
-                }
-            },
+            Predicate = predicate.ToUtxoPredicate(),
             MaxItems = (int)maxItems
         };
-
-        switch (predicate)
-        {
-            case AddressPredicate addressPredicate:  
-                AddressPattern addressPattern = new ();
-                switch (addressPredicate.AddressSearch)
-                {
-                    case AddressSearchType.ExactAddress:
-                        addressPattern.ExactAddress = ByteString.CopyFrom(addressPredicate.Address);
-                        break;
-                    case AddressSearchType.PaymentPart:
-                        addressPattern.PaymentPart = ByteString.CopyFrom(addressPredicate.Address);
-                        break;
-                    case AddressSearchType.DelegationPart:
-                        addressPattern.DelegationPart = ByteString.CopyFrom(addressPredicate.Address);
-                        break;
-                }
-                request.Predicate.Match.Cardano.Address = addressPattern;
-                break;
-
-            case AssetPredicate assetPredicate:
-                AssetPattern assetPattern = new();
-                switch (assetPredicate.AssetSearch)
-                {
-                    case AssetSearchType.PolicyId:
-                        assetPattern.PolicyId = ByteString.CopyFrom(assetPredicate.Asset);
-                        break;
-                    case AssetSearchType.AssetName:
-                        assetPattern.AssetName = ByteString.CopyFrom(assetPredicate.Asset);
-                        break;
-                }
-                request.Predicate.Match.Cardano.Asset = assetPattern;
-                break;
-
-            default:
-                throw new ArgumentException($"Unsupported predicate type: {predicate.GetType().Name}");
-        }
 
         if (fieldMask != null)
         {
@@ -122,7 +79,7 @@ public class QueryServiceClient
             request.StartToken = start_token;
         }
 
-        var response = await _client.SearchUtxosAsync(request);
+        V1alpha.Query.SearchUtxosResponse response = await _client.SearchUtxosAsync(request);
         return DataUtils.FromSpecSearchUtxosResponse(response);
     }
 
@@ -133,7 +90,7 @@ public class QueryServiceClient
         {
             FieldMask = fieldMask
         };
-        var response = await _client.ReadParamsAsync(request);
+        V1alpha.Query.ReadParamsResponse response = await _client.ReadParamsAsync(request);
         return DataUtils.FromSpecReadParamsResponse(response);
     }
 }
