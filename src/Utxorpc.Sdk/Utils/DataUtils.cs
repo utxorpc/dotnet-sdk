@@ -6,6 +6,9 @@ using SpecSyncBlockRef = Utxorpc.V1alpha.Sync.BlockRef;
 using SpecWatchBlockRef = Utxorpc.V1alpha.Watch.BlockRef;
 using Block = Utxorpc.Sdk.Models.Block;
 using Utxorpc.V1alpha.Sync;
+using SpecTxoRef = Utxorpc.V1alpha.Query.TxoRef;
+using SpecWatchTxResponse = Utxorpc.V1alpha.Watch.WatchTxResponse;
+
 
 namespace Utxorpc.Sdk.Utils;
 
@@ -70,4 +73,21 @@ public static class DataUtils
 
     public static NextResponse CreateResetResponse(BlockRef blockRef) => 
         new(NextResponseAction.Reset, ResetRef: blockRef);
+
+
+    // Watch service conversion methods
+    public static Models.WatchTxResponse FromSpecWatchTxResponse(SpecWatchTxResponse specResponse)
+    {
+        var tx = specResponse.Apply;
+        
+        object? parsedState = null;
+        
+        if (tx != null && tx.ChainCase == Utxorpc.V1alpha.Watch.AnyChainTx.ChainOneofCase.Cardano)
+        {
+            parsedState = tx.Cardano;
+        }
+        
+        return new Models.WatchTxResponse(null, parsedState);
+    }
 }
+
