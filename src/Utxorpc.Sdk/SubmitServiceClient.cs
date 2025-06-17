@@ -5,6 +5,12 @@ using Grpc.Net.Client;
 using Utxorpc.Sdk.Models;
 using Utxorpc.Sdk.Utils;
 using Utxorpc.V1alpha.Submit;
+using SpecSubmitTxResponse = Utxorpc.V1alpha.Submit.SubmitTxResponse;
+using SpecWaitForTxResponse = Utxorpc.V1alpha.Submit.WaitForTxResponse;
+using SpecWatchMempoolResponse = Utxorpc.V1alpha.Submit.WatchMempoolResponse;
+using SubmitTxResponse = Utxorpc.Sdk.Models.SubmitTxResponse;
+using WaitForTxResponse = Utxorpc.Sdk.Models.WaitForTxResponse;
+using WatchMempoolResponse = Utxorpc.Sdk.Models.WatchMempoolResponse;
 
 namespace Utxorpc.Sdk;
 
@@ -34,11 +40,11 @@ public class SubmitServiceClient
         _client = new SubmitService.SubmitServiceClient(channel);
     }
 
-    public async Task<Models.SubmitTxResponse> SubmitTxAsync(Models.Tx[] txs)
+    public async Task<SubmitTxResponse> SubmitTxAsync(Tx[] txs)
     {
         SubmitTxRequest request = new();
 
-        foreach (Models.Tx key in txs)
+        foreach (Tx key in txs)
         {
             AnyChainTx protoRef = new()
             {
@@ -47,11 +53,11 @@ public class SubmitServiceClient
             request.Tx.Add(protoRef);
         }
 
-        V1alpha.Submit.SubmitTxResponse response = await _client.SubmitTxAsync(request);
+        SpecSubmitTxResponse response = await _client.SubmitTxAsync(request);
         return DataUtils.FromSpecSubmitTxResponse(response);
     }
 
-    public async IAsyncEnumerable<Models.WatchMempoolResponse> WatchMempoolAsync(Predicate predicate, FieldMask? fieldMask, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    public async IAsyncEnumerable<WatchMempoolResponse> WatchMempoolAsync(Predicate predicate, FieldMask? fieldMask, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         WatchMempoolRequest request = new()
         {
@@ -63,14 +69,14 @@ public class SubmitServiceClient
             request.FieldMask = fieldMask;
         }
 
-        using AsyncServerStreamingCall<V1alpha.Submit.WatchMempoolResponse>? call = _client.WatchMempool(request, cancellationToken: cancellationToken);
-        await foreach (V1alpha.Submit.WatchMempoolResponse? response in call.ResponseStream.ReadAllAsync(cancellationToken))
+        using AsyncServerStreamingCall<SpecWatchMempoolResponse>? call = _client.WatchMempool(request, cancellationToken: cancellationToken);
+        await foreach (SpecWatchMempoolResponse? response in call.ResponseStream.ReadAllAsync(cancellationToken))
         {
             yield return DataUtils.FromSpecWatchMempoolResponse(response);
         }
     }
     
-    public async IAsyncEnumerable<Models.WaitForTxResponse> WaitForTxAsync(TxoRef[] txoRefs, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    public async IAsyncEnumerable<WaitForTxResponse> WaitForTxAsync(TxoRef[] txoRefs, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         WaitForTxRequest request = new();
         
@@ -82,8 +88,8 @@ public class SubmitServiceClient
             }
         }
         
-        using AsyncServerStreamingCall<V1alpha.Submit.WaitForTxResponse>? call = _client.WaitForTx(request, cancellationToken: cancellationToken);
-        await foreach (V1alpha.Submit.WaitForTxResponse? response in call.ResponseStream.ReadAllAsync(cancellationToken))
+        using AsyncServerStreamingCall<SpecWaitForTxResponse>? call = _client.WaitForTx(request, cancellationToken: cancellationToken);
+        await foreach (SpecWaitForTxResponse? response in call.ResponseStream.ReadAllAsync(cancellationToken))
         {
             yield return DataUtils.FromSpecWaitForTxResponse(response);
         }

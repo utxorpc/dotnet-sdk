@@ -12,7 +12,6 @@ using SpecWaitForTxResponse = Utxorpc.V1alpha.Submit.WaitForTxResponse;
 using WaitForTxResponse = Utxorpc.Sdk.Models.WaitForTxResponse;
 using SpecWatchMempoolResponse = Utxorpc.V1alpha.Submit.WatchMempoolResponse;
 using WatchMempoolResponse = Utxorpc.Sdk.Models.WatchMempoolResponse;
-using SpecWatchTxResponse = Utxorpc.V1alpha.Watch.WatchTxResponse;
 using SpecTxInMempool = Utxorpc.V1alpha.Submit.TxInMempool;
 using TxInMempool = Utxorpc.Sdk.Models.TxInMempool;
 using SpecStage = Utxorpc.V1alpha.Submit.Stage;
