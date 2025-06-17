@@ -1,21 +1,22 @@
 using Utxorpc.Sdk.Models.Enums;
-
+using Utxorpc.V1alpha.Cardano;
+using Utxorpc.V1alpha.Query;
 namespace Utxorpc.Sdk.Models;
 
 public abstract record Predicate
 {
-    public abstract V1alpha.Query.UtxoPredicate ToUtxoPredicate();
+    public abstract UtxoPredicate ToUtxoPredicate();
 }
 
 public record MatchPredicate(
-    Action<V1alpha.Query.AnyUtxoPattern> ConfigureMatch
+    Action<AnyUtxoPattern> ConfigureMatch
 ) : Predicate
 {
-    public override V1alpha.Query.UtxoPredicate ToUtxoPredicate()
+    public override UtxoPredicate ToUtxoPredicate()
     {
-        V1alpha.Query.UtxoPredicate predicate = new()
+        UtxoPredicate predicate = new()
         {
-            Match = new V1alpha.Query.AnyUtxoPattern()
+            Match = new AnyUtxoPattern()
         };
         ConfigureMatch(predicate.Match);
         return predicate;
@@ -26,9 +27,9 @@ public record NotPredicate(
     params Predicate[] Predicates
 ) : Predicate
 {
-    public override V1alpha.Query.UtxoPredicate ToUtxoPredicate()
+    public override UtxoPredicate ToUtxoPredicate()
     {
-        V1alpha.Query.UtxoPredicate predicate = new();
+        UtxoPredicate predicate = new();
         foreach (Predicate p in Predicates)
         {
             predicate.Not.Add(p.ToUtxoPredicate());
@@ -41,9 +42,9 @@ public record AllOfPredicate(
     params Predicate[] Predicates
 ) : Predicate
 {
-    public override V1alpha.Query.UtxoPredicate ToUtxoPredicate()
+    public override UtxoPredicate ToUtxoPredicate()
     {
-        V1alpha.Query.UtxoPredicate predicate = new();
+        UtxoPredicate predicate = new();
         foreach (Predicate p in Predicates)
         {
             predicate.AllOf.Add(p.ToUtxoPredicate());
@@ -56,9 +57,9 @@ public record AnyOfPredicate(
     params Predicate[] Predicates
 ) : Predicate
 {
-    public override V1alpha.Query.UtxoPredicate ToUtxoPredicate()
+    public override UtxoPredicate ToUtxoPredicate()
     {
-        V1alpha.Query.UtxoPredicate predicate = new();
+        UtxoPredicate predicate = new();
         foreach (Predicate p in Predicates)
         {
             predicate.AnyOf.Add(p.ToUtxoPredicate());
@@ -72,15 +73,15 @@ public record AddressPredicate(
     AddressSearchType? AddressSearch
 ) : Predicate
 {
-    public override V1alpha.Query.UtxoPredicate ToUtxoPredicate()
+    public override UtxoPredicate ToUtxoPredicate()
     {
-        V1alpha.Query.UtxoPredicate predicate = new()
+        UtxoPredicate predicate = new()
         {
-            Match = new V1alpha.Query.AnyUtxoPattern()
+            Match = new AnyUtxoPattern()
         };
 
-        V1alpha.Cardano.TxOutputPattern cardanoPattern = new();
-        V1alpha.Cardano.AddressPattern addressPattern = new();
+        TxOutputPattern cardanoPattern = new();
+        AddressPattern addressPattern = new();
         
         switch (AddressSearch)
         {
@@ -107,15 +108,15 @@ public record AssetPredicate(
     AssetSearchType? AssetSearch
 ) : Predicate
 {
-    public override V1alpha.Query.UtxoPredicate ToUtxoPredicate()
+    public override UtxoPredicate ToUtxoPredicate()
     {
-        V1alpha.Query.UtxoPredicate predicate = new()
+        UtxoPredicate predicate = new()
         {
-            Match = new V1alpha.Query.AnyUtxoPattern()
+            Match = new AnyUtxoPattern()
         };
 
-        V1alpha.Cardano.TxOutputPattern cardanoPattern = new();
-        V1alpha.Cardano.AssetPattern assetPattern = new();
+        TxOutputPattern cardanoPattern = new();
+        AssetPattern assetPattern = new();
         
         switch (AssetSearch)
         {

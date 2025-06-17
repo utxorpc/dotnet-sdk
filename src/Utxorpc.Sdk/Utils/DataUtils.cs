@@ -20,7 +20,8 @@ using SpecSearchUtxosResponse = Utxorpc.V1alpha.Query.SearchUtxosResponse;
 using SearchUtxosResponse = Utxorpc.Sdk.Models.SearchUtxosResponse;
 using SpecReadParamsResponse = Utxorpc.V1alpha.Query.ReadParamsResponse;
 using ReadParamsResponse = Utxorpc.Sdk.Models.ReadParamsResponse;
-using SpecSubmitTxResponse = Utxorpc.V1alpha.Submit.SubmitTxResponse;
+using SpecCardano = Utxorpc.V1alpha.Cardano;
+
 
 namespace Utxorpc.Sdk.Utils;
 
@@ -31,7 +32,7 @@ public static class DataUtils
     {
         if (anyChainBlock?.Cardano != null)
         {
-            var cardanoBlock = anyChainBlock.Cardano;
+            SpecCardano.Block cardanoBlock = anyChainBlock.Cardano;
             return new Block(
                 Convert.ToHexString(cardanoBlock.Header.Hash.ToByteArray()),
                 cardanoBlock.Header.Slot,
@@ -129,7 +130,7 @@ public static class DataUtils
 
     public static ReadUtxosResponse FromSpecReadUtxosResponse(SpecReadUtxosResponse specResponse)
     {
-        var items = specResponse.Items.Select(FromSpecAnyUtxoData).Where(x => x != null).Cast<AnyUtxoData>().ToList();
+        List<AnyUtxoData> items = [.. specResponse.Items.Select(FromSpecAnyUtxoData).Where(x => x != null).Cast<AnyUtxoData>()];
         return new ReadUtxosResponse(
             items,
             FromSpecChainPoint(specResponse.LedgerTip)
@@ -138,7 +139,7 @@ public static class DataUtils
 
     public static SearchUtxosResponse FromSpecSearchUtxosResponse(SpecSearchUtxosResponse specResponse)
     {
-        var items = specResponse.Items.Select(FromSpecAnyUtxoData).Where(x => x != null).Cast<AnyUtxoData>().ToList();
+        List<AnyUtxoData> items = [.. specResponse.Items.Select(FromSpecAnyUtxoData).Where(x => x != null).Cast<AnyUtxoData>()];
         return new SearchUtxosResponse(
             items,
             FromSpecChainPoint(specResponse.LedgerTip),
