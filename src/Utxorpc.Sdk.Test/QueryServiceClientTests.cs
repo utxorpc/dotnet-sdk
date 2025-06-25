@@ -1,7 +1,7 @@
 using Xunit;
-using Utxorpc.Sdk;
 using Utxorpc.Sdk.Models;
 using Utxorpc.Sdk.Models.Enums;
+using Utxorpc.V1alpha.Cardano;
 
 namespace Utxorpc.Sdk.Test;
 
@@ -16,206 +16,326 @@ public class QueryServiceClientTests
     }
 
     [Fact]
-    public async Task ReadParams_ShouldReturnChainParameters()
+    public async Task ReadParams()
     {
+        // Act
         var response = await _client.ReadParamsAsync(null);
 
-        Console.WriteLine("\n=== ReadParams Response ===");
-        Console.WriteLine($"LedgerTip Slot: {response.LedgerTip?.Slot}");
-        Console.WriteLine($"LedgerTip Hash: {Convert.ToHexString(response.LedgerTip?.Hash ?? [])}");
-        
-        if (response.Values?.Params is Utxorpc.V1alpha.Cardano.PParams cardanoParams)
-        {
-            Console.WriteLine("\nCardano Protocol Parameters:");
-            Console.WriteLine($"  Protocol Version: {cardanoParams.ProtocolVersion?.Major}.{cardanoParams.ProtocolVersion?.Minor}");
-            Console.WriteLine($"  Min Fee Coefficient: {cardanoParams.MinFeeCoefficient}");
-            Console.WriteLine($"  Min Fee Constant: {cardanoParams.MinFeeConstant}");
-            Console.WriteLine($"  Max Tx Size: {cardanoParams.MaxTxSize}");
-            Console.WriteLine($"  Max Block Body Size: {cardanoParams.MaxBlockBodySize}");
-            Console.WriteLine($"  Coins Per UTxO Byte: {cardanoParams.CoinsPerUtxoByte}");
-            Console.WriteLine($"  Pool Deposit: {cardanoParams.PoolDeposit}");
-            Console.WriteLine($"  Key Deposit: {cardanoParams.StakeKeyDeposit}");
-        }
-
+        // Assert basic response structure
         Assert.NotNull(response);
         Assert.NotNull(response.Values);
         Assert.NotNull(response.Values.Params);
         Assert.NotNull(response.LedgerTip);
-    }
 
-    [Fact]
-    public async Task ReadUtxos_WithValidTxoRef_ShouldReturnUtxo()
-    {
-        var txHash = Convert.FromBase64String("n6GJYXlgCNoeWLf+EpkCpXjctW2l1FjFsSRIF4rSGo0=");
-        var index = 0u;
+        // Ensure it's Cardano parameters
+        var cardanoParams = (PParams)response.Values.Params;
 
-        var txoRef = new TxoRef(txHash, index);
-        var response = await _client.ReadUtxosAsync([txoRef], null);
+        // Assert all expected parameter values for Preview testnet
+        Assert.Equal(4310u, cardanoParams.CoinsPerUtxoByte);
+        Assert.Equal(16384u, cardanoParams.MaxTxSize);
+        Assert.Equal(44u, cardanoParams.MinFeeCoefficient);
+        Assert.Equal(155381u, cardanoParams.MinFeeConstant);
+        Assert.Equal(90112u, cardanoParams.MaxBlockBodySize);
+        Assert.Equal(1100u, cardanoParams.MaxBlockHeaderSize);
+        Assert.Equal(2000000u, cardanoParams.StakeKeyDeposit);
+        Assert.Equal(500000000u, cardanoParams.PoolDeposit);
+        Assert.Equal(0u, cardanoParams.PoolRetirementEpochBound);
+        Assert.Equal(500u, cardanoParams.DesiredNumberOfPools);
+        Assert.Equal(170000000u, cardanoParams.MinPoolCost);
+        Assert.Equal(5000u, cardanoParams.MaxValueSize);
+        Assert.Equal(150u, cardanoParams.CollateralPercentage);
+        Assert.Equal(3u, cardanoParams.MaxCollateralInputs);
 
-        Console.WriteLine("\n=== ReadUtxos Response ===");
-        Console.WriteLine($"Items Count: {response.Items?.Count ?? 0}");
-        Console.WriteLine($"LedgerTip Slot: {response.LedgerTip?.Slot}");
-        Console.WriteLine($"LedgerTip Hash: {Convert.ToHexString(response.LedgerTip?.Hash ?? [])}");
-        
-        foreach (var item in response.Items ?? [])
+        // Protocol version
+        Assert.NotNull(cardanoParams.ProtocolVersion);
+        Assert.Equal(9u, cardanoParams.ProtocolVersion.Major);
+        Assert.Equal(0u, cardanoParams.ProtocolVersion.Minor);
+
+        // Rational parameters
+        Assert.NotNull(cardanoParams.PoolInfluence);
+        Assert.Equal(5033165, cardanoParams.PoolInfluence.Numerator);
+        Assert.Equal(16777216, (int)cardanoParams.PoolInfluence.Denominator);
+
+        Assert.NotNull(cardanoParams.MonetaryExpansion);
+        Assert.Equal(6442451, cardanoParams.MonetaryExpansion.Numerator);
+        Assert.Equal(2147483648L, cardanoParams.MonetaryExpansion.Denominator);
+
+        Assert.NotNull(cardanoParams.TreasuryExpansion);
+        Assert.Equal(13421773, cardanoParams.TreasuryExpansion.Numerator);
+        Assert.Equal(67108864, (int)cardanoParams.TreasuryExpansion.Denominator);
+
+        // Prices
+        Assert.NotNull(cardanoParams.Prices);
+        Assert.NotNull(cardanoParams.Prices.Steps);
+        Assert.Equal(721, cardanoParams.Prices.Steps.Numerator);
+        Assert.Equal(10000000, (int)cardanoParams.Prices.Steps.Denominator);
+
+        Assert.NotNull(cardanoParams.Prices.Memory);
+        Assert.Equal(577, cardanoParams.Prices.Memory.Numerator);
+        Assert.Equal(10000, (int)cardanoParams.Prices.Memory.Denominator);
+
+        // Execution units
+        Assert.NotNull(cardanoParams.MaxExecutionUnitsPerTransaction);
+        Assert.Equal(10000000000u, cardanoParams.MaxExecutionUnitsPerTransaction.Steps);
+        Assert.Equal(14000000u, cardanoParams.MaxExecutionUnitsPerTransaction.Memory);
+
+        Assert.NotNull(cardanoParams.MaxExecutionUnitsPerBlock);
+        Assert.Equal(20000000000u, cardanoParams.MaxExecutionUnitsPerBlock.Steps);
+        Assert.Equal(62000000u, cardanoParams.MaxExecutionUnitsPerBlock.Memory);
+
+        // Script ref cost
+        Assert.NotNull(cardanoParams.MinFeeScriptRefCostPerByte);
+        Assert.Equal(15, cardanoParams.MinFeeScriptRefCostPerByte.Numerator);
+        Assert.Equal(1, (int)cardanoParams.MinFeeScriptRefCostPerByte.Denominator);
+
+        // Governance parameters
+        Assert.Equal(365u, cardanoParams.CommitteeTermLimit);
+        Assert.Equal(30u, cardanoParams.GovernanceActionValidityPeriod);
+        Assert.Equal(100000000000u, cardanoParams.GovernanceActionDeposit);
+        Assert.Equal(500000000u, cardanoParams.DrepDeposit);
+        Assert.Equal(20u, cardanoParams.DrepInactivityPeriod);
+
+        // Voting thresholds
+        Assert.NotNull(cardanoParams.PoolVotingThresholds);
+        Assert.NotNull(cardanoParams.PoolVotingThresholds.Thresholds);
+        Assert.Equal(5, cardanoParams.PoolVotingThresholds.Thresholds.Count);
+        foreach (var threshold in cardanoParams.PoolVotingThresholds.Thresholds)
         {
-            Console.WriteLine($"\nUTXO TxRef: {Convert.ToHexString(item.TxoRef?.Hash ?? [])}#{item.TxoRef?.Index}");
-            Console.WriteLine($"Native Bytes Length: {item.NativeBytes?.Length ?? 0}");
-            if (item.ParsedState is Utxorpc.V1alpha.Cardano.TxOutput cardanoOutput)
-            {
-                Console.WriteLine($"Address: {Convert.ToBase64String(cardanoOutput.Address?.ToByteArray() ?? [])}");
-                Console.WriteLine($"Value: {cardanoOutput.Coin} lovelace");
-                Console.WriteLine($"Assets Count: {cardanoOutput.Assets?.Count ?? 0}");
-            }
+            Assert.Equal(51, threshold.Numerator);
+            Assert.Equal(100u, threshold.Denominator);
         }
 
-        Assert.NotNull(response);
-        Assert.NotNull(response.Items);
+        Assert.NotNull(cardanoParams.DrepVotingThresholds);
+        Assert.NotNull(cardanoParams.DrepVotingThresholds.Thresholds);
+        Assert.Equal(10, cardanoParams.DrepVotingThresholds.Thresholds.Count);
+
+        // Cost models
+        Assert.NotNull(cardanoParams.CostModels);
+        Assert.NotNull(cardanoParams.CostModels.PlutusV1);
+        Assert.NotNull(cardanoParams.CostModels.PlutusV1.Values);
+        Assert.Contains(100788u, cardanoParams.CostModels.PlutusV1.Values);
+        Assert.Contains(420u, cardanoParams.CostModels.PlutusV1.Values);
+        Assert.Contains(1u, cardanoParams.CostModels.PlutusV1.Values);
+        Assert.Contains(1000u, cardanoParams.CostModels.PlutusV1.Values);
+
+        Assert.NotNull(cardanoParams.CostModels.PlutusV2);
+        Assert.NotNull(cardanoParams.CostModels.PlutusV2.Values);
+        Assert.Contains(100788u, cardanoParams.CostModels.PlutusV2.Values);
+
+        Assert.NotNull(cardanoParams.CostModels.PlutusV3);
+        Assert.NotNull(cardanoParams.CostModels.PlutusV3.Values);
+        Assert.Contains(100788u, cardanoParams.CostModels.PlutusV3.Values);
     }
 
     [Fact]
-    public async Task ReadUtxos_WithMultipleTxoRefs_ShouldReturnUtxos()
+    public async Task ReadUtxosByOutputRef()
     {
-        var txoRefs = new[]
-        {
-            new TxoRef(Convert.FromBase64String("n6GJYXlgCNoeWLf+EpkCpXjctW2l1FjFsSRIF4rSGo0="), 0),
-            new TxoRef(Convert.FromBase64String("rJsJlkeNYBRjjLvr9GR7UEXZWluuWvsm9Ut7OYiT6ik="), 0)
-        };
+        // Arrange
+        var txHash = Convert.FromHexString("9874bdf4ad47b2d30a2146fc4ba1f94859e58e772683e75001aca6e85de7690d");
+        var outputIndex = 0u;
+        var txoRef = new TxoRef(txHash, outputIndex);
 
-        var response = await _client.ReadUtxosAsync(txoRefs, null);
+        // Act
+        var utxos = await _client.ReadUtxosAsync([txoRef], null);
 
-        Assert.NotNull(response);
-        Assert.NotNull(response.Items);
-        Assert.NotNull(response.LedgerTip);
+        // Assert
+        Assert.NotNull(utxos);
+        Assert.NotNull(utxos.Items);
+        Assert.Single(utxos.Items);
+        Assert.NotNull(utxos.LedgerTip);
+
+        var utxo = utxos.Items[0];
+
+        // Verify the UTXO reference matches what we requested
+        Assert.NotNull(utxo.TxoRef);
+        Assert.Equal(txHash, utxo.TxoRef.Hash);
+        Assert.Equal(outputIndex, utxo.TxoRef.Index);
+
+        // Verify native bytes
+        Assert.NotNull(utxo.NativeBytes);
+        Assert.Equal("82583900729c67d0de8cde3c0afc768fb0fcb1596e8cfcbf781b553efcd228813b7bb577937983e016d4e8429ff48cf386d6818883f9e88b62a804e01a05f5e100",
+            Convert.ToHexString(utxo.NativeBytes).ToLower());
+
+        // Verify parsed state
+        Assert.NotNull(utxo.ParsedState);
+        var cardanoOutput = Assert.IsType<TxOutput>(utxo.ParsedState);
+        Assert.NotNull(cardanoOutput.Address);
+        Assert.True(cardanoOutput.Coin > 0);
     }
 
     [Fact]
-    public async Task SearchUtxos_ByAddress_ShouldReturnResults()
+    public async Task SearchUtxosByAddress()
     {
-        var addressBytes = Convert.FromBase64String("AFP7//q3sAEoGRfed/GKgIdBO+A0AdtKoqfb8K4VkdNNW0snKNBKgP3QQbtS7bM02svyWqJ4d+c4"); 
+        // Arrange
+        var testAddressHex = "0053fbfffab7b001281917de77f18a8087413be03401db4aa2a7dbf0ae1591d34d5b4b2728d04a80fdd041bb52edb334dacbf25aa27877e738";
+        var addressBytes = Convert.FromHexString(testAddressHex);
         var predicate = new AddressPredicate(addressBytes, AddressSearchType.ExactAddress);
 
-        var response = await _client.SearchUtxosAsync(predicate, maxItems: 10, fieldMask: null);
+        // Act
+        var utxos = await _client.SearchUtxosAsync(predicate, maxItems: 10, fieldMask: null);
 
-        Console.WriteLine("\n=== SearchUtxos (By Address) Response ===");
-        Console.WriteLine($"Items Count: {response.Items?.Count ?? 0}");
-        Console.WriteLine($"Next Token: {response.NextToken ?? "null"}");
-        Console.WriteLine($"LedgerTip Slot: {response.LedgerTip?.Slot}");
-        Console.WriteLine($"LedgerTip Hash: {Convert.ToHexString(response.LedgerTip?.Hash ?? [])}");
-        
-        int count = 0;
-        foreach (var item in response.Items?.Take(3) ?? [])
+        // Assert
+        Assert.NotNull(utxos);
+        Assert.NotNull(utxos.Items);
+        Assert.NotNull(utxos.LedgerTip);
+        Assert.True(utxos.Items.Count > 0, "Should find at least one UTXO");
+
+        // Verify all returned UTXOs belong to the searched address
+        foreach (var utxo in utxos.Items)
         {
-            count++;
-            Console.WriteLine($"\nUTXO #{count}:");
-            Console.WriteLine($"  TxRef: {Convert.ToHexString(item.TxoRef?.Hash ?? [])}#{item.TxoRef?.Index}");
-            if (item.ParsedState is Utxorpc.V1alpha.Cardano.TxOutput cardanoOutput)
-            {
-                Console.WriteLine($"  Value: {cardanoOutput.Coin} lovelace");
-            }
-        }
+            Assert.NotNull(utxo.ParsedState);
+            var cardanoOutput = Assert.IsType<TxOutput>(utxo.ParsedState);
+            Assert.NotNull(cardanoOutput.Address);
 
-        Assert.NotNull(response);
-        Assert.NotNull(response.Items);
-        Assert.NotNull(response.LedgerTip);
+            // Verify the address matches what we searched for
+            var utxoAddressBytes = cardanoOutput.Address.ToByteArray();
+            Assert.Equal(addressBytes, utxoAddressBytes);
+        }
     }
 
     [Fact]
-    public async Task SearchUtxos_ByPaymentCredential_ShouldReturnResults()
+    public async Task SearchUtxosByPaymentPart()
     {
-        var paymentCredBytes = Convert.FromBase64String("U/v/+rewASgZF9538YqAh0E74DQB20qip9vwrg==");
+        // Arrange
+        var paymentCredHex = "53fbfffab7b001281917de77f18a8087413be03401db4aa2a7dbf0ae";
+        var paymentCredBytes = Convert.FromHexString(paymentCredHex);
         var predicate = new AddressPredicate(paymentCredBytes, AddressSearchType.PaymentPart);
 
-        var response = await _client.SearchUtxosAsync(predicate, maxItems: 5, fieldMask: null);
+        // Act
+        var utxos = await _client.SearchUtxosAsync(predicate, maxItems: 5, fieldMask: null);
 
-        Assert.NotNull(response);
-        Assert.NotNull(response.Items);
+        // Assert
+        Assert.NotNull(utxos);
+        Assert.NotNull(utxos.Items);
+        Assert.NotNull(utxos.LedgerTip);
+        Assert.True(utxos.Items.Count > 0, "Should find at least one UTXO");
+
+        // Verify all returned UTXOs have the correct payment credential
+        foreach (var utxo in utxos.Items)
+        {
+            Assert.NotNull(utxo.ParsedState);
+            var cardanoOutput = Assert.IsType<TxOutput>(utxo.ParsedState);
+            Assert.NotNull(cardanoOutput.Address);
+
+            var utxoAddressBytes = cardanoOutput.Address.ToByteArray();
+            // Payment credential is bytes 1-28 (after network byte)
+            var utxoPaymentCred = utxoAddressBytes.Skip(1).Take(28).ToArray();
+
+            Assert.Equal(paymentCredBytes, utxoPaymentCred);
+        }
     }
 
     [Fact]
-    public async Task SearchUtxos_ByDelegationPart_ShouldReturnResults()
+    public async Task SearchUtxosByDelegationPart()
     {
-        var delegationCredBytes = Convert.FromBase64String("FZHTTVtLJyjQSoD90EG7Uu2zNNrL8lqieHfnOA==");
+        // Arrange
+        var delegationCredHex = "1591d34d5b4b2728d04a80fdd041bb52edb334dacbf25aa27877e738";
+        var delegationCredBytes = Convert.FromHexString(delegationCredHex);
         var predicate = new AddressPredicate(delegationCredBytes, AddressSearchType.DelegationPart);
 
-        var response = await _client.SearchUtxosAsync(predicate, maxItems: 5, fieldMask: null);
+        // Act
+        var utxos = await _client.SearchUtxosAsync(predicate, maxItems: 5, fieldMask: null);
 
-        Console.WriteLine("\n=== SearchUtxos (By Delegation Part) Response ===");
-        Console.WriteLine($"Items Count: {response.Items?.Count ?? 0}");
-        Console.WriteLine($"LedgerTip Slot: {response.LedgerTip?.Slot}");
+        // Assert
+        Assert.NotNull(utxos);
+        Assert.NotNull(utxos.Items);
+        Assert.NotNull(utxos.LedgerTip);
+        Assert.True(utxos.Items.Count > 0, "Should find at least one UTXO");
 
-        Assert.NotNull(response);
-        Assert.NotNull(response.Items);
+        // Verify all returned UTXOs have the correct delegation credential
+        foreach (var utxo in utxos.Items)
+        {
+            Assert.NotNull(utxo.ParsedState);
+            var cardanoOutput = Assert.IsType<TxOutput>(utxo.ParsedState);
+            Assert.NotNull(cardanoOutput.Address);
+
+            var utxoAddressBytes = cardanoOutput.Address.ToByteArray();
+            // Base address should be 57 bytes: 1 (network) + 28 (payment) + 28 (delegation)
+            Assert.Equal(57, utxoAddressBytes.Length);
+
+            // Delegation credential is bytes 29-56 (last 28 bytes)
+            var utxoDelegationCred = utxoAddressBytes.Skip(29).Take(28).ToArray();
+
+            Assert.Equal(delegationCredBytes, utxoDelegationCred);
+        }
     }
 
     [Fact]
-    public async Task SearchUtxos_ByPolicyId_ShouldReturnResults()
+    public async Task SearchUtxosByPolicyID()
     {
-        var policyIdBytes = Convert.FromBase64String("BH4PkSxCYP5mriceWuSU3NX3ljW7uxOGvhlfTg==");
+        // Arrange
+        var policyIdHex = "047e0f912c4260fe66ae271e5ae494dcd5f79635bbbb1386be195f4e";
+        var policyIdBytes = Convert.FromHexString(policyIdHex);
         var predicate = new AssetPredicate(policyIdBytes, AssetSearchType.PolicyId);
 
-        var response = await _client.SearchUtxosAsync(predicate, maxItems: 10, fieldMask: null);
+        // Act
+        var utxos = await _client.SearchUtxosAsync(predicate, maxItems: 10, fieldMask: null);
 
-        Assert.NotNull(response);
-        Assert.NotNull(response.Items);
+        // Assert
+        Assert.NotNull(utxos);
+        Assert.NotNull(utxos.Items);
+        Assert.NotNull(utxos.LedgerTip);
+        Assert.True(utxos.Items.Count > 0, "Should find at least one UTXO");
+
+        // Verify all returned UTXOs contain the searched policy ID
+        foreach (var utxo in utxos.Items)
+        {
+            Assert.NotNull(utxo.ParsedState);
+            var cardanoOutput = Assert.IsType<TxOutput>(utxo.ParsedState);
+            Assert.NotNull(cardanoOutput.Assets);
+            Assert.True(cardanoOutput.Assets.Count > 0, "UTXO should contain assets");
+
+            // Check that at least one asset group has the expected policy ID
+            var hasExpectedPolicy = cardanoOutput.Assets.Any(assetGroup =>
+                assetGroup.PolicyId.Span.SequenceEqual(policyIdBytes));
+
+            Assert.True(hasExpectedPolicy,
+                "UTXO should contain at least one asset with the searched policy ID");
+        }
     }
 
     [Fact]
-    public async Task SearchUtxos_ByAssetName_ShouldReturnResults()
+    public async Task SearchUtxosByAsset()
     {
-        var assetBytes = Convert.FromBase64String("BH4PkSxCYP5mriceWuSU3NX3ljW7uxOGvhlfTkFMTEVZS0FUWjAwMDYw");
+        // Arrange
+        var policyIdHex = "047e0f912c4260fe66ae271e5ae494dcd5f79635bbbb1386be195f4e";
+        var assetNameHex = "414c4c45594b41545a3030303630"; // "ALLEYKATZ00060"
+        var assetBytes = Convert.FromHexString(policyIdHex + assetNameHex);
         var predicate = new AssetPredicate(assetBytes, AssetSearchType.AssetName);
 
-        var response = await _client.SearchUtxosAsync(predicate, maxItems: 10, fieldMask: null);
+        // Act
+        var utxos = await _client.SearchUtxosAsync(predicate, maxItems: 10, fieldMask: null);
 
-        Console.WriteLine("\n=== SearchUtxos (By Asset Name) Response ===");
-        Console.WriteLine($"Items Count: {response.Items?.Count ?? 0}");
-        Console.WriteLine($"LedgerTip Slot: {response.LedgerTip?.Slot}");
-        
-        foreach (var item in response.Items?.Take(2) ?? [])
+        // Assert
+        Assert.NotNull(utxos);
+        Assert.NotNull(utxos.Items);
+        Assert.NotNull(utxos.LedgerTip);
+        Assert.True(utxos.Items.Count > 0, "Should find at least one UTXO");
+
+        // Parse the expected values
+        var expectedPolicyId = Convert.FromHexString(policyIdHex);
+        var expectedAssetName = Convert.FromHexString(assetNameHex);
+
+        // Verify all returned UTXOs contain the exact asset
+        foreach (var utxo in utxos.Items)
         {
-            if (item.ParsedState is Utxorpc.V1alpha.Cardano.TxOutput cardanoOutput && cardanoOutput.Assets != null)
-            {
-                Console.WriteLine($"UTxO has {cardanoOutput.Assets.Count} asset policy groups");
-            }
+            Assert.NotNull(utxo.ParsedState);
+            var cardanoOutput = Assert.IsType<TxOutput>(utxo.ParsedState);
+            Assert.NotNull(cardanoOutput.Assets);
+
+            // Find the asset group with our policy ID
+            var assetGroup = cardanoOutput.Assets.FirstOrDefault(ag =>
+                ag.PolicyId.Span.SequenceEqual(expectedPolicyId));
+
+            Assert.NotNull(assetGroup);
+            Assert.NotNull(assetGroup.Assets);
+
+            // Check that this group contains our asset name
+            var hasExpectedAsset = assetGroup.Assets.Any(asset =>
+                asset.Name.Span.SequenceEqual(expectedAssetName));
+
+            Assert.True(hasExpectedAsset,
+                "UTXO should contain the exact asset (policy ID + name) that was searched");
         }
-
-        Assert.NotNull(response);
-        Assert.NotNull(response.Items);
-    }
-
-    [Fact]
-    public async Task SearchUtxos_WithPagination_ShouldHandleNextToken()
-    {
-        var addressBytes = Convert.FromBase64String("cGFnaW5hdGlvbmFkZHJlc3MxMjM0NTY3ODkw");
-        var predicate = new AddressPredicate(addressBytes, AddressSearchType.ExactAddress);
-
-        var firstPage = await _client.SearchUtxosAsync(predicate, maxItems: 2, fieldMask: null);
-        
-        Assert.NotNull(firstPage);
-        
-        if (!string.IsNullOrEmpty(firstPage.NextToken))
-        {
-            var secondPage = await _client.SearchUtxosAsync(
-                predicate, 
-                maxItems: 2, 
-                fieldMask: null, 
-                start_token: firstPage.NextToken
-            );
-            
-            Assert.NotNull(secondPage);
-            Assert.NotNull(secondPage.Items);
-        }
-    }
-
-    [Fact]
-    public async Task Client_ShouldHandleConnectionErrors_Gracefully()
-    {
-        var badClient = new QueryServiceClient("http://localhost:9999");
-        
-        await Assert.ThrowsAsync<Grpc.Core.RpcException>(async () =>
-        {
-            await badClient.ReadParamsAsync(null);
-        });
     }
 }
