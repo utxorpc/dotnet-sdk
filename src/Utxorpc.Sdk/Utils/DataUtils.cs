@@ -43,16 +43,20 @@ public static class DataUtils
     }
 
     // BlockRef conversion methods
-    public static BlockRef FromSyncBlockRef(SpecSyncBlockRef syncBlockRef)
+    public static BlockRef? FromSyncBlockRef(SpecSyncBlockRef? syncBlockRef)
     {
+        if (syncBlockRef == null) return null;
+        
         return new BlockRef(
             Convert.ToHexString(syncBlockRef.Hash.ToByteArray()),
             syncBlockRef.Index
         );
     }
 
-    public static BlockRef FromWatchBlockRef(SpecWatchBlockRef watchBlockRef)
+    public static BlockRef? FromWatchBlockRef(SpecWatchBlockRef? watchBlockRef)
     {
+        if (watchBlockRef == null) return null;
+        
         return new BlockRef(
             Convert.ToHexString(watchBlockRef.Hash.ToByteArray()),
             watchBlockRef.Index
@@ -84,7 +88,7 @@ public static class DataUtils
     public static NextResponse CreateUndoResponse(Block block) => 
         new(NextResponseAction.Undo, UndoneBlock: block);
 
-    public static NextResponse CreateResetResponse(BlockRef blockRef) => 
+    public static NextResponse CreateResetResponse(BlockRef? blockRef) => 
         new(NextResponseAction.Reset, ResetRef: blockRef);
 
     // Query conversion methods
