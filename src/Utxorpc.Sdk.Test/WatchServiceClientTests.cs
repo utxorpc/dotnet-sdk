@@ -21,13 +21,14 @@ using WalletAddress = Chrysalis.Wallet.Models.Addresses.Address;
 
 namespace Utxorpc.Sdk.Test;
 
-public class WatchServiceClientTests
+[Collection("Sequential")]
+public class WatchServiceClientTests : IAsyncLifetime
 {
     private const string DOLOS_URL = "http://localhost:50051";
     private const string TEST_MNEMONIC = "february next piano since banana hurdle tide soda reward hood luggage bronze polar veteran fold doctor melt usual rose coral mask interest army clump";
     private const string RECEIVER_ADDRESS = "addr_test1qpflhll6k7cqz2qezl080uv2szr5zwlqxsqakj4z5ldlpts4j8f56k6tyu5dqj5qlhgyrw6jakenfkkt7fd2y7rhuuuquqeeh5";
     private const string BLOCKFROST_API_KEY = "previewajMhMPYerz9Pd3GsqjayLwP5mgnNnZCC";
-    private const ulong AMOUNT_TO_SEND = 6_000_000UL; // 6 ADA
+    private const int WATCH_TIMEOUT_SECONDS = 120; // 2 minutes
     
     private readonly WatchServiceClient _watchClient;
     private readonly SubmitServiceClient _submitClient;
@@ -37,10 +38,41 @@ public class WatchServiceClientTests
         _watchClient = new WatchServiceClient(DOLOS_URL);
         _submitClient = new SubmitServiceClient(DOLOS_URL);
     }
-
-    private static async Task<byte[]> BuildTransactionAsync(string mnemonic, ulong amountToSend, string receiverAddress)
+    
+    private static byte[]? _sharedTxCbor;
+    private static readonly SemaphoreSlim _initLock = new(1, 1);
+    private static bool _initialized = false;
+    
+    public async Task InitializeAsync()
     {
-        // Derive keys from mnemonic
+        await _initLock.WaitAsync();
+        try
+        {
+            if (!_initialized)
+            {
+                // Submit one asset transaction that all tests will watch for
+                _sharedTxCbor = await BuildAndSubmitTransactionWithAssetAsync(TEST_MNEMONIC, RECEIVER_ADDRESS);
+                
+                
+                // Give transaction time to propagate
+                await Task.Delay(5000);
+                
+                _initialized = true;
+            }
+        }
+        finally
+        {
+            _initLock.Release();
+        }
+    }
+    
+    public Task DisposeAsync()
+    {
+        return Task.CompletedTask;
+    }
+
+    private static (PrivateKey paymentKey, WalletAddress senderAddress) DeriveKeysAndAddress(string mnemonic)
+    {
         var mnemonicObj = Mnemonic.Restore(mnemonic, English.Words);
         var accountKey = mnemonicObj
             .GetRootKey()
@@ -51,28 +83,21 @@ public class WatchServiceClientTests
         var paymentKey = accountKey.Derive(RoleType.ExternalChain).Derive(0);
         var stakingKey = accountKey.Derive(RoleType.Staking).Derive(0);
         
-        // Create sender address
         var pkPub = paymentKey.GetPublicKey();
         var skPub = stakingKey.GetPublicKey();
         var addressBody = HashUtil.Blake2b224(pkPub.Key).Concat(HashUtil.Blake2b224(skPub.Key)).ToArray();
         var header = new AddressHeader(AddressType.BasePayment, NetworkType.Testnet);
         var senderAddress = new WalletAddress([header.ToByte(), .. addressBody]);
         
-        // Use Blockfrost to get UTXOs and protocol parameters
-        var provider = new Blockfrost(BLOCKFROST_API_KEY);
-        var utxos = await provider.GetUtxosAsync(senderAddress.ToBech32());
-        var pparams = await provider.GetParametersAsync();
-        var txBuilder = TransactionBuilder.Create(pparams);
-        
-        // Define output
-        var receiver = new WalletAddress(receiverAddress);
-        var output = new PostAlonzoTransactionOutput(
-            new ChrysalisAddress(receiver.ToBytes()),
-            new Lovelace(amountToSend),
-            null,
-            null
-        );
-        
+        return (paymentKey, senderAddress);
+    }
+
+    private static void BuildAndFinalizeTransaction(
+        TransactionBuilder txBuilder, 
+        List<ResolvedInput> utxos, 
+        PostAlonzoTransactionOutput output, 
+        WalletAddress senderAddress)
+    {
         // Find a suitable fee input (>= 5 ADA and pure ADA)
         ResolvedInput? feeInput = null;
         foreach (var utxo in utxos.OrderByDescending(e => e.Output.Amount().Lovelace()))
@@ -119,14 +144,103 @@ public class WatchServiceClientTests
             .AddOutput(output)
             .AddOutput(changeOutput, true)
             .CalculateFee([]);
+    }
+
+    private async Task<byte[]> BuildAndSubmitTransactionWithAssetAsync(string mnemonic, string receiverAddress)
+    {
+        var (paymentKey, senderAddress) = DeriveKeysAndAddress(mnemonic);
+        
+        // Use Blockfrost to get UTXOs and protocol parameters
+        var provider = new Blockfrost(BLOCKFROST_API_KEY);
+        var utxos = await provider.GetUtxosAsync(senderAddress.ToBech32());
+        var pparams = await provider.GetParametersAsync();
+        
+        // Find UTXOs with assets
+        Dictionary<byte[], Dictionary<byte[], ulong>>? assetsToSend = null;
+        foreach (var utxo in utxos)
+        {
+            if (utxo.Output.Amount() is LovelaceWithMultiAsset multiAsset)
+            {
+                var assets = multiAsset.MultiAsset();
+                if (assets.Count > 0)
+                {
+                    // Take the first asset we find
+                    var firstPolicy = assets.First();
+                    var policyId = firstPolicy.Key;
+                    var tokenBundle = firstPolicy.Value;
+                    
+                    // Get the first asset from this policy
+                    var tokenDict = tokenBundle.Value;
+                    if (tokenDict.Count > 0)
+                    {
+                        var firstAsset = tokenDict.First();
+                        var assetName = firstAsset.Key;
+                        var amount = firstAsset.Value;
+                        
+                        // Send 1 unit of this asset (or all if less than 1)
+                        var assetAmountToSend = Math.Min(1UL, amount);
+                        
+                        assetsToSend = new Dictionary<byte[], Dictionary<byte[], ulong>>
+                        {
+                            [policyId] = new Dictionary<byte[], ulong>
+                            {
+                                [assetName] = assetAmountToSend
+                            }
+                        };
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (assetsToSend == null)
+        {
+            throw new InvalidOperationException("No assets found in wallet");
+        }
+        
+        var txBuilder = TransactionBuilder.Create(pparams);
+        
+        // Define output with assets
+        var receiver = new WalletAddress(receiverAddress);
+        
+        // Create the asset structure for output
+        var outputTokenBundle = new Dictionary<byte[], TokenBundleOutput>();
+        foreach (var (policyId, assets) in assetsToSend)
+        {
+            outputTokenBundle[policyId] = new TokenBundleOutput(assets);
+        }
+        
+        // Minimum ADA required when sending assets (usually 1.5-2 ADA)
+        var minAdaForAssets = 2_000_000UL;
+        var outputValue = new LovelaceWithMultiAsset(
+            new Lovelace(minAdaForAssets),
+            new MultiAssetOutput(outputTokenBundle)
+        );
+        
+        var output = new PostAlonzoTransactionOutput(
+            new ChrysalisAddress(receiver.ToBytes()),
+            outputValue,
+            null,
+            null
+        );
+
+        // Build and finalize transaction
+        BuildAndFinalizeTransaction(txBuilder, utxos, output, senderAddress);
         
         // Build and sign transaction
         var unsignedTx = txBuilder.Build();
         var signedTx = unsignedTx.Sign(paymentKey);
         
         // Serialize to CBOR
-        return CborSerializer.Serialize(signedTx);
+        var cbor = CborSerializer.Serialize(signedTx);
+        
+        // Submit the transaction via our submit client
+        var tx = new Tx(cbor);
+        await _submitClient.SubmitTxAsync([tx]);
+        
+        return cbor;
     }
+    
 
     [Fact]
     public async Task WatchTxForAddress()
@@ -136,7 +250,7 @@ public class WatchServiceClientTests
         var addressBytes = receiverAddr.ToBytes();
         var addressPredicate = new AddressPredicate(addressBytes, AddressSearchType.ExactAddress);
         
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(WATCH_TIMEOUT_SECONDS));
         
         // Start watching before submitting
         var watchTask = Task.Run(async () =>
@@ -153,10 +267,7 @@ public class WatchServiceClientTests
         // Give the watcher time to start
         await Task.Delay(100);
         
-        // Submit a transaction to the watched address
-        var txCbor = await BuildTransactionAsync(TEST_MNEMONIC, AMOUNT_TO_SEND, RECEIVER_ADDRESS);
-        var tx = new Tx(txCbor);
-        await _submitClient.SubmitTxAsync([tx]);
+        // Transaction already submitted in InitializeAsync
 
         // Act - Wait for events
         var events = await watchTask;
@@ -181,7 +292,7 @@ public class WatchServiceClientTests
             Assert.True(hasAddressInOutputs, "Watched address should be found in transaction outputs");
         }
     }
-
+    
     [Fact]
     public async Task WatchTxForPaymentPart()
     {
@@ -190,7 +301,7 @@ public class WatchServiceClientTests
         var paymentCredBytes = receiverAddr.ToBytes().Skip(1).Take(28).ToArray(); // Extract payment credential
         var paymentPredicate = new AddressPredicate(paymentCredBytes, AddressSearchType.PaymentPart);
         
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(WATCH_TIMEOUT_SECONDS));
         
         // Start watching before submitting
         var watchTask = Task.Run(async () =>
@@ -207,10 +318,7 @@ public class WatchServiceClientTests
         // Give the watcher time to start
         await Task.Delay(100);
         
-        // Submit a transaction
-        var txCbor = await BuildTransactionAsync(TEST_MNEMONIC, AMOUNT_TO_SEND, RECEIVER_ADDRESS);
-        var tx = new Tx(txCbor);
-        await _submitClient.SubmitTxAsync([tx]);
+        // Transaction already submitted in InitializeAsync
 
         // Act - Wait for events
         var events = await watchTask;
@@ -244,7 +352,7 @@ public class WatchServiceClientTests
             Assert.True(foundPaymentCred, "Transaction should contain an output with the watched payment credential");
         }
     }
-
+    
     [Fact]
     public async Task WatchTxForDelegationPart()
     {
@@ -253,7 +361,7 @@ public class WatchServiceClientTests
         var delegationCredBytes = receiverAddr.ToBytes().Skip(29).Take(28).ToArray(); // Extract delegation credential
         var delegationPredicate = new AddressPredicate(delegationCredBytes, AddressSearchType.DelegationPart);
         
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(WATCH_TIMEOUT_SECONDS));
         
         // Start watching before submitting
         var watchTask = Task.Run(async () =>
@@ -270,10 +378,7 @@ public class WatchServiceClientTests
         // Give the watcher time to start
         await Task.Delay(100);
         
-        // Submit a transaction
-        var txCbor = await BuildTransactionAsync(TEST_MNEMONIC, AMOUNT_TO_SEND, RECEIVER_ADDRESS);
-        var tx = new Tx(txCbor);
-        await _submitClient.SubmitTxAsync([tx]);
+        // Transaction already submitted in InitializeAsync
 
         // Act - Wait for events
         var events = await watchTask;
@@ -304,7 +409,7 @@ public class WatchServiceClientTests
             Assert.True(foundDelegationCred, "Transaction should contain an output with the watched delegation credential");
         }
     }
-
+    
     [Fact]
     public async Task WatchTxForPolicyId()
     {
@@ -313,7 +418,7 @@ public class WatchServiceClientTests
         var policyIdBytes = Convert.FromHexString(policyIdHex);
         var assetPredicate = new AssetPredicate(policyIdBytes, AssetSearchType.PolicyId);
         
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(WATCH_TIMEOUT_SECONDS));
         
         // Start watching before submitting
         var watchTask = Task.Run(async () =>
@@ -330,10 +435,7 @@ public class WatchServiceClientTests
         // Give the watcher time to start
         await Task.Delay(100);
         
-        // Submit a transaction
-        var txCbor = await BuildTransactionAsync(TEST_MNEMONIC, AMOUNT_TO_SEND, RECEIVER_ADDRESS);
-        var tx = new Tx(txCbor);
-        await _submitClient.SubmitTxAsync([tx]);
+        // Transaction already submitted in InitializeAsync
 
         // Act - Wait for events
         var events = await watchTask;
@@ -358,7 +460,7 @@ public class WatchServiceClientTests
             Assert.True(foundPolicyId, "Transaction should contain an output with assets having the watched policy ID");
         }
     }
-
+    
     [Fact]
     public async Task WatchTxForAsset()
     {
@@ -367,7 +469,7 @@ public class WatchServiceClientTests
         var assetBytes = Convert.FromHexString(assetHex);
         var assetPredicate = new AssetPredicate(assetBytes, AssetSearchType.AssetName);
         
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(WATCH_TIMEOUT_SECONDS));
         
         // Start watching before submitting
         var watchTask = Task.Run(async () =>
@@ -384,10 +486,7 @@ public class WatchServiceClientTests
         // Give the watcher time to start
         await Task.Delay(100);
         
-        // Submit a transaction
-        var txCbor = await BuildTransactionAsync(TEST_MNEMONIC, AMOUNT_TO_SEND, RECEIVER_ADDRESS);
-        var tx = new Tx(txCbor);
-        await _submitClient.SubmitTxAsync([tx]);
+        // Transaction already submitted in InitializeAsync
 
         // Act - Wait for events
         var events = await watchTask;
