@@ -158,7 +158,10 @@ public class SyncServiceClient
                     break;
                 case FollowTipResponse.ActionOneofCase.Reset:
                     BlockRef? resetRef = DataUtils.FromSyncBlockRef(response.Reset);
-                    yield return DataUtils.CreateResetResponse(resetRef);
+                    if (resetRef != null)
+                    {
+                        yield return DataUtils.CreateResetResponse(resetRef);
+                    }
                     break;
             }
         }
