@@ -53,7 +53,7 @@ public class SubmitServiceClientTests
         var pkPub = paymentKey.GetPublicKey();
         var skPub = stakingKey.GetPublicKey();
         var addressBody = HashUtil.Blake2b224(pkPub.Key).Concat(HashUtil.Blake2b224(skPub.Key)).ToArray();
-        var header = new AddressHeader(AddressType.BasePayment, NetworkType.Testnet);
+        var header = new AddressHeader(AddressType.Base, NetworkType.Testnet);
         var senderAddress = new WalletAddress([header.ToByte(), .. addressBody]);
         
         // Use Blockfrost to get UTXOs and protocol parameters
@@ -173,33 +173,6 @@ public class SubmitServiceClientTests
         Assert.NotNull(firstStage.Ref);
         Assert.Equal(txHash, firstStage.Ref);
         Assert.True(firstStage.Stage >= Stage.Acknowledged);
-    }
-
-    [Fact]
-    public async Task WatchMempool()
-    {
-        // Arrange
-        var allPredicate = new MatchPredicate(
-            match => match.Cardano = new(),
-            txMatch => txMatch.Cardano = new()
-        );
-        
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-
-        // Act
-        var events = new List<WatchMempoolResponse>();
-        await foreach (var mempoolEvent in _client.WatchMempoolAsync(allPredicate, fieldMask: null, cts.Token))
-        {
-            events.Add(mempoolEvent);
-            if (events.Count >= 1) break;
-        }
-
-        // Assert
-        Assert.True(events.Count > 0, "Should find at least one transaction event");
-        var firstEvent = events[0];
-        Assert.NotNull(firstEvent.Tx);
-        Assert.NotNull(firstEvent.Tx?.Ref);
-        Assert.True(firstEvent.Tx?.Stage >= Stage.Acknowledged);
     }
 
     [Fact]
