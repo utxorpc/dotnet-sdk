@@ -1,7 +1,6 @@
 ﻿using Utxorpc.Sdk;
 using Utxorpc.Sdk.Models;
 using Utxorpc.Sdk.Models.Enums;
-using Google.Protobuf.WellKnownTypes;
 
 // Configuration
 const string SERVER_URL = "http://localhost:50051";
@@ -17,17 +16,6 @@ if (args.Length > 0)
         {
             // Query Service
             case "readutxos":
-                if (args.Length < 2)
-                {
-                    Console.WriteLine("Usage: dotnet run -- readutxos <tx-hash-base64> [index]");
-                    Console.WriteLine("   OR: dotnet run -- readutxos <tx-hash-base64>:<index> [<tx-hash-base64>:<index> ...]");
-                    Console.WriteLine("");
-                    Console.WriteLine("Examples:");
-                    Console.WriteLine("  Single UTXO: dotnet run -- readutxos abc123 0");
-                    Console.WriteLine("  Multiple UTXOs: dotnet run -- readutxos abc123:0 def456:1 ghi789:0");
-                    return;
-                }
-                
                 // Check if it's multiple UTXOs (contains colon) or single UTXO
                 if (args[1].Contains(':') || (args.Length > 2 && args[2].Contains(':')))
                 {
@@ -49,34 +37,94 @@ if (args.Length > 0)
             case "searchutxos":
                 if (args.Length < 3)
                 {
-                    Console.WriteLine("Usage: dotnet run -- searchutxos <type> <value-base64>");
-                    Console.WriteLine("");
-                    Console.WriteLine("Address search types:");
-                    Console.WriteLine("  address    - Search by exact address match");
-                    Console.WriteLine("  payment    - Search by payment credential");
-                    Console.WriteLine("  delegation - Search by delegation part");
-                    Console.WriteLine("");
-                    Console.WriteLine("Asset search types:");
-                    Console.WriteLine("  asset      - Search by asset (policy:name in base64)");
-                    Console.WriteLine("  policy     - Search by policy ID only");
-                    Console.WriteLine("");
-                    Console.WriteLine("Examples:");
-                    Console.WriteLine("  dotnet run -- searchutxos address AFP7//q3sAEoGRfed/GKgIdBO+A0AdtKoqfb8K4VkdNNW0snKNBKgP3QQbtS7bM02svyWqJ4d+c4");
-                    Console.WriteLine("  dotnet run -- searchutxos payment U/v/+rfwASgZF9539higgH1BO+A0AdtKoqfb");
-                    Console.WriteLine("  dotnet run -- searchutxos delegation 8K4VkdNNW0snKNBKgP3QQbtS7bM02svyWqJ4");
+                    Console.WriteLine("Usage: searchutxos <type> <value-hex>");
+                    Console.WriteLine("Types: exact, payment, delegation, asset, policy");
+                    Console.WriteLine("Example: searchutxos exact 0053FBFFFAB7B001281917DE77F18A8087413BE03401DB4AA2A7DBF0AE1591D34D5B4B2728D04A80FDD041BB52EDB334DACBF25AA27877E738");
                     return;
                 }
                 await TestSearchUtxos(args[1], args[2]);
                 break;
                 
+            // Submit Service
+            case "submittx":
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: dotnet run -- submittx <tx-cbor-hex>");
+                    return;
+                }
+                await TestSubmitTx(args[1]);
+                break;
                 
+            case "waitfortx":
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: dotnet run -- waitfortx <tx-hash-hex>");
+                    return;
+                }
+                await TestWaitForTx(args[1]);
+                break;
+                
+            case "watchmempool":
+                await TestWatchMempool(args[1], args[2]);
+                break;
+                
+            // Watch Service
+            case "watchtx":
+                await TestWatchTx(args[1], args[2]);
+                break;
+                
+            // Sync Service
+            case "readtip":
+                await TestReadTip();
+                break;
+                
+            case "fetchblock":
+                await TestFetchBlock(uint.Parse(args[1]), args[2]);
+                break;
+                
+            case "dumphistory":
+                if (args.Length >= 4)
+                {
+                    // Format: dumphistory <index> <hash> <count>
+                    await TestDumpHistory(ulong.Parse(args[1]), args[2], int.Parse(args[3]));
+                }
+                else if (args.Length >= 2)
+                {
+                    // Format: dumphistory <count>
+                    await TestDumpHistory(null, null, int.Parse(args[1]));
+                }
+                break;
+                
+            case "followtip":
+                if (args.Length >= 3)
+                {
+                    // Format: followtip <block-index> <block-hash-base64>
+                    await TestFollowTip(ulong.Parse(args[1]), args[2]);
+                }
+                else
+                {
+                    // Follow from current tip
+                    await TestFollowTip(null, null);
+                }
+                break;
             default:
                 Console.WriteLine($"Unknown command: {command}");
                 Console.WriteLine("\nAvailable commands:");
                 Console.WriteLine("\n=== Query Service ===");
-                Console.WriteLine("  readutxos <hash> [index]          - Query UTxOs by transaction");
+                Console.WriteLine("  readutxos <hash-hex> [index]      - Query UTxOs by transaction");
                 Console.WriteLine("  readparams                        - Query chain parameters");
-                Console.WriteLine("  searchutxos <addr>                - Search UTxOs by address");
+                Console.WriteLine("  searchutxos <type> <value-hex>    - Search UTxOs (types: exact, payment, delegation, asset, policy)");
+                Console.WriteLine("\n=== Submit Service ===");
+                Console.WriteLine("  submittx <cbor-hex>               - Submit a transaction");
+                Console.WriteLine("  waitfortx <hash-hex>              - Wait for transaction confirmation");
+                Console.WriteLine("  watchmempool <type> <value-hex>   - Watch mempool (address/payment/delegation/asset/policy)");
+                Console.WriteLine("\n=== Watch Service ===");
+                Console.WriteLine("  watchtx <type> <value-hex>        - Watch transactions (exact/payment/delegation/asset/policy)");
+                Console.WriteLine("\n=== Sync Service ===");
+                Console.WriteLine("  readtip                           - Read current chain tip");
+                Console.WriteLine("  fetchblock <index> <hash-hex>     - Fetch specific block");
+                Console.WriteLine("  dumphistory [count]               - Dump recent blocks");
+                Console.WriteLine("  followtip [index hash-hex]        - Follow chain tip updates");
                 break;
         }
     }
@@ -89,26 +137,17 @@ if (args.Length > 0)
         }
     }
 }
-else
-{
-    Console.WriteLine("Usage: dotnet run -- <command> [args]");
-    Console.WriteLine("\n=== Query Service ===");
-    Console.WriteLine("  readutxos <hash> [index]          - Query single UTxO by transaction");
-    Console.WriteLine("  readutxos <hash>:<idx> [...]      - Query multiple UTxOs");
-    Console.WriteLine("  readparams                        - Query chain parameters");
-    Console.WriteLine("  searchutxos <type> <value>        - Search UTxOs (address/payment/delegation/asset/policy)");
-}
 
 // Direct SDK usage methods
-async Task TestQueryUtxos(string txHashBase64, uint index = 0)
+async Task TestQueryUtxos(string txHashHex, uint index = 0)
 {
-    Console.WriteLine($"Querying UTxOs for tx: {txHashBase64}, index: {index}");
+    Console.WriteLine($"Querying UTxOs for tx: {txHashHex}, index: {index}");
     
     var client = new QueryServiceClient(SERVER_URL);
     var txoRefs = new[]
     {
         new TxoRef(
-            Hash: Convert.FromBase64String(txHashBase64),
+            Hash: Convert.FromHexString(txHashHex),
             Index: index
         )
     };
@@ -279,7 +318,7 @@ async Task TestQueryUtxosMulti(string[] utxoSpecs)
         var parts = spec.Split(':');
         if (parts.Length != 2)
         {
-            Console.WriteLine($"Invalid UTXO format: {spec}. Expected format: <tx-hash-base64>:<index>");
+            Console.WriteLine($"Invalid UTXO format: {spec}. Expected format: <tx-hash-hex>:<index>");
             continue;
         }
         
@@ -291,12 +330,12 @@ async Task TestQueryUtxosMulti(string[] utxoSpecs)
         
         try
         {
-            var txHash = Convert.FromBase64String(parts[0]);
+            var txHash = Convert.FromHexString(parts[0]);
             txoRefs.Add(new TxoRef(txHash, index));
         }
         catch (FormatException)
         {
-            Console.WriteLine($"Invalid base64 hash in: {spec}");
+            Console.WriteLine($"Invalid hex hash in: {spec}");
             continue;
         }
     }
@@ -590,12 +629,12 @@ async Task TestQueryParams()
     }
 }
 
-async Task TestSearchUtxos(string searchType, string valueBase64)
+async Task TestSearchUtxos(string searchType, string valueHex)
 {
-    Console.WriteLine($"Searching UTxOs by {searchType}: {valueBase64}");
+    Console.WriteLine($"Searching UTxOs by {searchType}: {valueHex}");
     
     var client = new QueryServiceClient(SERVER_URL);
-    var valueBytes = Convert.FromBase64String(valueBase64);
+    var valueBytes = Convert.FromHexString(valueHex);
     
     Predicate predicate;
     
@@ -672,6 +711,331 @@ async Task TestSearchUtxos(string searchType, string valueBase64)
     }
 }
 
+async Task TestSubmitTx(string txCborHex)
+{
+    Console.WriteLine("Submitting transaction...");
+    
+    var client = new SubmitServiceClient(SERVER_URL);
+    var txBytes = Convert.FromHexString(txCborHex);
+    var tx = new Tx(txBytes);
+    
+    var response = await client.SubmitTxAsync(new[] { tx });
+    
+    if (response?.Refs != null && response.Refs.Count > 0)
+    {
+        Console.WriteLine("Transaction submitted successfully!");
+        foreach (var txRef in response.Refs)
+        {
+            Console.WriteLine($"  Tx Hash: {Convert.ToBase64String(txRef)}");
+            Console.WriteLine($"  Tx Hash (Hex): {Convert.ToHexString(txRef)}");
+        }
+    }
+}
 
+async Task TestWaitForTx(string txHashHex)
+{
+    Console.WriteLine($"Waiting for transaction: {txHashHex}");
+    
+    var client = new SubmitServiceClient(SERVER_URL);
+    var txHash = Convert.FromHexString(txHashHex);
+    var txoRefs = new[] { new TxoRef(Hash: txHash, Index: null) };
+    
+    var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+    
+    await foreach (var response in client.WaitForTxAsync(txoRefs, cts.Token))
+    {
+        Console.WriteLine($"Stage: {response.Stage}");
+        if (response.Stage == Stage.Confirmed)
+        {
+            Console.WriteLine("Transaction confirmed!");
+            break;
+        }
+    }
+}
 
+async Task TestWatchTx(string searchType, string valueHex)
+{
+    Console.WriteLine($"Watching transactions for {searchType}: {valueHex}");
+    Console.WriteLine("Press Ctrl+C to stop...\n");
+    
+    var client = new WatchServiceClient(SERVER_URL);
+    var valueBytes = Convert.FromHexString(valueHex);
+    Predicate predicate = searchType.ToLower() switch
+    {
+        "exact" => new AddressPredicate(valueBytes, AddressSearchType.ExactAddress),
+        "payment" => new AddressPredicate(valueBytes, AddressSearchType.PaymentPart),
+        "delegation" => new AddressPredicate(valueBytes, AddressSearchType.DelegationPart),
+        "asset" => new AssetPredicate(valueBytes, AssetSearchType.AssetName),
+        "policy" => new AssetPredicate(valueBytes, AssetSearchType.PolicyId),
+        _ => throw new ArgumentException($"Unknown search type: {searchType}"),
+    };
+    var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+    int count = 0;
+    
+    await foreach (var response in client.WatchTxAsync(predicate, null, null, cts.Token))
+    {
+        count++;
+        Console.WriteLine($"Transaction #{count}:");
+        
+        if (response?.ParsedState is Utxorpc.V1alpha.Cardano.Tx cardanoTx)
+        {
+            Console.WriteLine($"  Hash: {Convert.ToBase64String(cardanoTx.Hash?.ToByteArray() ?? Array.Empty<byte>())}");
+            Console.WriteLine($"  Inputs: {cardanoTx.Inputs?.Count ?? 0}");
+            Console.WriteLine($"  Outputs: {cardanoTx.Outputs?.Count ?? 0}");
+            Console.WriteLine($"  Fee: {cardanoTx.Fee}");
+            Console.WriteLine($"  Successful: {cardanoTx.Successful}");
+        }
+        
+        if (count >= 5) break;
+    }
+    
+    Console.WriteLine($"\nTotal transactions: {count}");
+}
+
+async Task TestWatchMempool(string searchType, string valueHex)
+{
+    Console.WriteLine($"Watching mempool for {searchType}: {valueHex}");
+    Console.WriteLine("Press Ctrl+C to stop...\n");
+    
+    var client = new SubmitServiceClient(SERVER_URL);
+    var valueBytes = Convert.FromHexString(valueHex);
+    
+    Predicate predicate;
+    
+    switch (searchType.ToLower())
+    {
+        case "address":
+        case "exact":
+            predicate = new AddressPredicate(valueBytes, AddressSearchType.ExactAddress);
+            break;
+            
+        case "payment":
+            predicate = new AddressPredicate(valueBytes, AddressSearchType.PaymentPart);
+            break;
+            
+        case "delegation":
+            predicate = new AddressPredicate(valueBytes, AddressSearchType.DelegationPart);
+            break;
+            
+        case "asset":
+            predicate = new AssetPredicate(valueBytes, AssetSearchType.AssetName);
+            break;
+            
+        case "policy":
+            predicate = new AssetPredicate(valueBytes, AssetSearchType.PolicyId);
+            break;
+            
+        default:
+            Console.WriteLine($"Unknown search type: {searchType}");
+            Console.WriteLine("Valid types: address, payment, delegation, asset, policy");
+            return;
+    }
+    
+    var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+    int count = 0;
+    
+    await foreach (var response in client.WatchMempoolAsync(predicate, null, cts.Token))
+    {
+        count++;
+        Console.WriteLine($"\nMempool event #{count} at {DateTime.Now:HH:mm:ss}:");
+        
+        if (response?.Tx != null)
+        {
+            Console.WriteLine($"  Stage: {response.Tx.Stage}");
+            Console.WriteLine($"  Native Bytes: {response.Tx.NativeBytes?.Length ?? 0} bytes");
+            if (response.Tx.Ref != null)
+            {
+                Console.WriteLine($"  Tx Hash: {Convert.ToHexString(response.Tx.Ref)}");
+            }
+            
+            // Show parsed transaction details if available
+            if (response.Tx.ParsedState != null && response.Tx.ParsedState is AnyUtxoData utxoData)
+            {
+                if (utxoData.ParsedState is Utxorpc.V1alpha.Cardano.TxOutput cardanoOutput)
+                {
+                    Console.WriteLine($"  Value: {cardanoOutput.Coin / 1_000_000.0:F6} ADA");
+                    
+                    // Show assets if watching for assets
+                    if ((searchType.ToLower() == "asset" || searchType.ToLower() == "policy") && 
+                        cardanoOutput.Assets != null && cardanoOutput.Assets.Count > 0)
+                    {
+                        Console.WriteLine($"  Assets: {cardanoOutput.Assets.Count} policy ID(s)");
+                    }
+                }
+            }
+        }
+    }
+    
+    Console.WriteLine($"\nTotal events: {count}");
+}
+
+// Sync Service methods
+async Task TestReadTip()
+{
+    Console.WriteLine("Reading chain tip...");
+    
+    var client = new SyncServiceClient(SERVER_URL);
+    var tip = await client.ReadTipAsync();
+    
+    if (tip != null)
+    {
+        Console.WriteLine("\n=== Current Chain Tip ===");
+        Console.WriteLine($"  Hash: {tip.Hash}");
+        Console.WriteLine($"  Index: {tip.Index}");
+    }
+    else
+    {
+        Console.WriteLine("No tip returned");
+    }
+}
+
+async Task TestFetchBlock(uint blockIndex, string blockHashHex)
+{
+    Console.WriteLine($"Fetching block at index: {blockIndex}, hash: {blockHashHex}");
+    
+    var client = new SyncServiceClient(SERVER_URL);
+    var blockRef = new BlockRef(blockHashHex, blockIndex);
+    
+    var block = await client.FetchBlockAsync(blockRef);
+    
+    if (block != null)
+    {
+        Console.WriteLine("\n=== Block Details ===");
+        Console.WriteLine($"  Hash: {block.Hash}");
+        Console.WriteLine($"  Slot: {block.Slot}");
+        Console.WriteLine($"  Native Bytes: {block.NativeBytes?.Length ?? 0} bytes");
+        
+        if (block.NativeBytes != null && block.NativeBytes.Length > 0)
+        {
+            // Show CBOR structure preview
+            var preview = block.NativeBytes.Take(100).ToArray();
+            Console.WriteLine($"  CBOR Preview: {Convert.ToHexString(preview)}...");
+        }
+    }
+    else
+    {
+        Console.WriteLine("Block not found");
+    }
+}
+
+async Task TestDumpHistory(ulong? startIndex, string? startHashHex, int count)
+{
+    Console.WriteLine($"Dumping {count} blocks from history...");
+    
+    var client = new SyncServiceClient(SERVER_URL);
+    
+    BlockRef? startToken = null;
+    if (startIndex.HasValue && !string.IsNullOrEmpty(startHashHex))
+    {
+        startToken = new BlockRef(startHashHex, startIndex.Value);
+        Console.WriteLine($"Starting from block index: {startIndex}, hash: {startHashHex}");
+    }
+    
+    var response = await client.DumpHistoryAsync(startToken: startToken, maxItems: (uint)count);
+    
+    Console.WriteLine($"\nFound {response.Blocks.Count} block(s)");
+    
+    int blockNum = 0;
+    foreach (var block in response.Blocks)
+    {
+        blockNum++;
+        Console.WriteLine($"\n=== Block #{blockNum} ===");
+        Console.WriteLine($"  Hash: {block.Hash}");
+        Console.WriteLine($"  Slot: {block.Slot}");
+        Console.WriteLine($"  Size: {block.NativeBytes?.Length ?? 0} bytes");
+        
+        // Show first few bytes of block data if available
+        if (block.NativeBytes != null && block.NativeBytes.Length > 0)
+        {
+            var preview = block.NativeBytes.Take(32).ToArray();
+            Console.WriteLine($"  Data preview: {Convert.ToHexString(preview)}...");
+        }
+    }
+    
+    if (response.NextToken != null)
+    {
+        Console.WriteLine($"\nMore blocks available. Next token:");
+        Console.WriteLine($"  Index: {response.NextToken.Index}");
+        Console.WriteLine($"  Hash: {response.NextToken.Hash}");
+        Console.WriteLine($"\nTo continue, run:");
+        Console.WriteLine($"  dotnet run -- dumphistory {response.NextToken.Index} {response.NextToken.Hash} {count}");
+    }
+}
+
+async Task TestFollowTip(ulong? blockIndex, string? blockHashHex)
+{
+    Console.WriteLine("Following chain tip updates (30 second timeout)...");
+    Console.WriteLine("This will show Apply/Undo/Reset events as the chain progresses.\n");
+    
+    var client = new SyncServiceClient(SERVER_URL);
+    var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+    
+    // Create intersection point if provided
+    BlockRef? intersectPoint = null;
+    if (!string.IsNullOrEmpty(blockHashHex) && blockIndex.HasValue)
+    {
+        intersectPoint = new BlockRef(blockHashHex, blockIndex.Value);
+        Console.WriteLine($"Starting from intersection: {blockHashHex} at index {blockIndex}");
+    }
+    else
+    {
+        Console.WriteLine("Following from current tip (no intersection point)");
+    }
+    
+    int eventCount = 0;
+    
+    try
+    {
+        await foreach (var response in client.FollowTipAsync(blockRef: intersectPoint, cts.Token))
+        {
+            eventCount++;
+            var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+            Console.WriteLine($"\n[{timestamp}] Event #{eventCount}: {response.Action}");
+            
+            switch (response.Action)
+            {
+                case NextResponseAction.Apply:
+                    if (response.AppliedBlock != null)
+                    {
+                        Console.WriteLine($"  Applied Block:");
+                        Console.WriteLine($"    Hash: {response.AppliedBlock.Hash}");
+                        Console.WriteLine($"    Slot: {response.AppliedBlock.Slot}");
+                        Console.WriteLine($"    Size: {response.AppliedBlock.NativeBytes?.Length ?? 0} bytes");
+                    }
+                    break;
+                    
+                case NextResponseAction.Undo:
+                    if (response.UndoneBlock != null)
+                    {
+                        Console.WriteLine($"  Undone Block:");
+                        Console.WriteLine($"    Hash: {response.UndoneBlock.Hash}");
+                        Console.WriteLine($"    Slot: {response.UndoneBlock.Slot}");
+                    }
+                    break;
+                    
+                case NextResponseAction.Reset:
+                    if (response.ResetRef != null)
+                    {
+                        Console.WriteLine($"  Reset to:");
+                        Console.WriteLine($"    Hash: {response.ResetRef.Hash}");
+                        Console.WriteLine($"    Index: {response.ResetRef.Index}");
+                    }
+                    break;
+            }
+            
+            // Stop after 10 events to avoid overwhelming output
+            if (eventCount >= 10)
+            {
+                Console.WriteLine("\nStopping after 10 events...");
+                break;
+            }
+        }
+    }
+    catch (OperationCanceledException)
+    {
+        Console.WriteLine("\nTimeout reached (30 seconds)");
+    }
+    
+    Console.WriteLine($"\nTotal events observed: {eventCount}");
+}
 
