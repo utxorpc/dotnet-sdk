@@ -1,7 +1,7 @@
 using Utxorpc.Sdk.Models.Enums;
+using Utxorpc.V1alpha.Cardano;
 using Utxorpc.V1alpha.Query;
 using Utxorpc.V1alpha.Submit;
-using Utxorpc.V1alpha.Cardano;
 
 namespace Utxorpc.Sdk.Models;
 
