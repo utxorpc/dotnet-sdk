@@ -25,4 +25,8 @@
     <ProjectReference Include="..\Utxorpc.Sdk\Utxorpc.Sdk.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Chrysalis" Version="0.7.11" />
+  </ItemGroup>
+
 </Project>

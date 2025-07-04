@@ -4,4 +4,3 @@ public record TxoRef(
     byte[]? Hash,
     ulong? Index
 );
-

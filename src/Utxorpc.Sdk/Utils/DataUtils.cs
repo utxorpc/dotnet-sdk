@@ -6,6 +6,16 @@ using SpecSyncBlockRef = Utxorpc.V1alpha.Sync.BlockRef;
 using SpecWatchBlockRef = Utxorpc.V1alpha.Watch.BlockRef;
 using Block = Utxorpc.Sdk.Models.Block;
 using Utxorpc.V1alpha.Sync;
+using SpecSubmitTxResponse = Utxorpc.V1alpha.Submit.SubmitTxResponse;
+using SubmitTxResponse = Utxorpc.Sdk.Models.SubmitTxResponse;
+using SpecWaitForTxResponse = Utxorpc.V1alpha.Submit.WaitForTxResponse;
+using WaitForTxResponse = Utxorpc.Sdk.Models.WaitForTxResponse;
+using SpecWatchMempoolResponse = Utxorpc.V1alpha.Submit.WatchMempoolResponse;
+using WatchMempoolResponse = Utxorpc.Sdk.Models.WatchMempoolResponse;
+using SpecTxInMempool = Utxorpc.V1alpha.Submit.TxInMempool;
+using TxInMempool = Utxorpc.Sdk.Models.TxInMempool;
+using SpecStage = Utxorpc.V1alpha.Submit.Stage;
+using Stage = Utxorpc.Sdk.Models.Enums.Stage;
 using SpecTxoRef = Utxorpc.V1alpha.Query.TxoRef;
 using TxoRef = Utxorpc.Sdk.Models.TxoRef;
 using SpecChainPoint = Utxorpc.V1alpha.Query.ChainPoint;
@@ -21,7 +31,6 @@ using SearchUtxosResponse = Utxorpc.Sdk.Models.SearchUtxosResponse;
 using SpecReadParamsResponse = Utxorpc.V1alpha.Query.ReadParamsResponse;
 using ReadParamsResponse = Utxorpc.Sdk.Models.ReadParamsResponse;
 using SpecCardano = Utxorpc.V1alpha.Cardano;
-
 
 namespace Utxorpc.Sdk.Utils;
 
@@ -72,15 +81,6 @@ public static class DataUtils
         };
     }
 
-    public static SpecWatchBlockRef ToWatchBlockRef(BlockRef blockRef)
-    {
-        return new SpecWatchBlockRef
-        {
-            Hash = ByteString.CopyFrom(Convert.FromHexString(blockRef.Hash)),
-            Index = blockRef.Index
-        };
-    }
-
     // NextResponse creation methods
     public static NextResponse CreateApplyResponse(Block block) => 
         new(NextResponseAction.Apply, AppliedBlock: block);
@@ -90,6 +90,62 @@ public static class DataUtils
 
     public static NextResponse CreateResetResponse(BlockRef? blockRef) => 
         new(NextResponseAction.Reset, ResetRef: blockRef);
+
+    // Submit service conversion methods
+    public static SubmitTxResponse FromSpecSubmitTxResponse(SpecSubmitTxResponse specResponse)
+    {
+        return new SubmitTxResponse(
+            [.. specResponse.Ref.Select(r => r.ToByteArray())]
+        );
+    }
+
+    public static WaitForTxResponse FromSpecWaitForTxResponse(SpecWaitForTxResponse specResponse)
+    {
+        return new WaitForTxResponse(
+            specResponse.Ref?.ToByteArray(),
+            FromSpecStage(specResponse.Stage)
+        );
+    }
+
+    public static WatchMempoolResponse FromSpecWatchMempoolResponse(SpecWatchMempoolResponse specResponse)
+    {
+        TxInMempool? tx = null;
+        if (specResponse.Tx != null)
+        {
+            tx = FromSpecTxInMempool(specResponse.Tx);
+        }
+        
+        return new WatchMempoolResponse(tx);
+    }
+
+    private static TxInMempool FromSpecTxInMempool(SpecTxInMempool specTx)
+    {
+        // Create AnyUtxoData from parsed state if available
+        AnyUtxoData? parsedState = specTx.ParsedStateCase == SpecTxInMempool.ParsedStateOneofCase.Cardano 
+            ? new AnyUtxoData(
+                specTx.NativeBytes?.ToByteArray() ?? Array.Empty<byte>(),
+                null,
+                specTx.Cardano
+            ) 
+            : null;
+
+        return new TxInMempool(
+            specTx.Ref?.ToByteArray(),
+            specTx.NativeBytes?.ToByteArray(),
+            FromSpecStage(specTx.Stage),
+            parsedState
+        );
+    }
+
+    private static Stage FromSpecStage(SpecStage specStage) => specStage switch
+    {
+        SpecStage.Unspecified => Stage.Unspecified,
+        SpecStage.Acknowledged => Stage.Acknowledged,
+        SpecStage.Mempool => Stage.Mempool,
+        SpecStage.Network => Stage.Network,
+        SpecStage.Confirmed => Stage.Confirmed,
+        _ => Stage.Unspecified
+    };
 
     // Query conversion methods
     public static TxoRef? FromSpecTxoRef(SpecTxoRef? specTxoRef)
