@@ -1,19 +1,22 @@
 using Utxorpc.Sdk.Models.Enums;
-using Utxorpc.V1alpha.Cardano;
 using Utxorpc.V1alpha.Query;
-using Utxorpc.V1alpha.Submit;
+using SpecSubmit = Utxorpc.V1alpha.Submit;
+using SpecWatch = Utxorpc.V1alpha.Watch;
+using Utxorpc.V1alpha.Cardano;
 
 namespace Utxorpc.Sdk.Models;
 
 public abstract record Predicate
 {
     public abstract UtxoPredicate ToUtxoPredicate();
-    public abstract TxPredicate ToTxPredicate();
+    public abstract SpecSubmit.TxPredicate ToTxPredicate();
+    public abstract SpecWatch.TxPredicate ToWatchTxPredicate();
 }
 
 public record MatchPredicate(
     Action<AnyUtxoPattern> ConfigureMatch,
-    Action<AnyChainTxPattern>? ConfigureTxMatch = null
+    Action<SpecSubmit.AnyChainTxPattern>? ConfigureTxMatch = null,
+    Action<SpecWatch.AnyChainTxPattern>? ConfigureWatchTxMatch = null
 ) : Predicate
 {
     public override UtxoPredicate ToUtxoPredicate()
@@ -26,11 +29,11 @@ public record MatchPredicate(
         return predicate;
     }
     
-    public override TxPredicate ToTxPredicate()
+    public override SpecSubmit.TxPredicate ToTxPredicate()
     {
-        var predicate = new TxPredicate
+        SpecSubmit.TxPredicate predicate = new()
         {
-            Match = new AnyChainTxPattern()
+            Match = new SpecSubmit.AnyChainTxPattern()
         };
         
         if (ConfigureTxMatch != null)
@@ -40,6 +43,30 @@ public record MatchPredicate(
         else
         {
             throw new NotSupportedException("MatchPredicate requires ConfigureTxMatch to be set for TxPredicate conversion");
+        }
+        
+        return predicate;
+    }
+    
+    public override SpecWatch.TxPredicate ToWatchTxPredicate()
+    {
+        SpecWatch.TxPredicate predicate = new()
+        {
+            Match = new SpecWatch.AnyChainTxPattern()
+        };
+        
+        if (ConfigureWatchTxMatch != null)
+        {
+            ConfigureWatchTxMatch(predicate.Match);
+        }
+        else if (ConfigureTxMatch != null)
+        {
+            // Try to use Submit configuration as fallback if the structures are compatible
+            throw new NotSupportedException("MatchPredicate requires ConfigureWatchTxMatch to be set for WatchTxPredicate conversion");
+        }
+        else
+        {
+            throw new NotSupportedException("MatchPredicate requires ConfigureWatchTxMatch to be set for WatchTxPredicate conversion");
         }
         
         return predicate;
@@ -60,12 +87,22 @@ public record NotPredicate(
         return predicate;
     }
     
-    public override TxPredicate ToTxPredicate()
+    public override SpecSubmit.TxPredicate ToTxPredicate()
     {
-        var predicate = new TxPredicate();
-        foreach (var p in Predicates)
+        SpecSubmit.TxPredicate predicate = new();
+        foreach (Predicate p in Predicates)
         {
             predicate.Not.Add(p.ToTxPredicate());
+        }
+        return predicate;
+    }
+    
+    public override SpecWatch.TxPredicate ToWatchTxPredicate()
+    {
+        SpecWatch.TxPredicate predicate = new();
+        foreach (Predicate p in Predicates)
+        {
+            predicate.Not.Add(p.ToWatchTxPredicate());
         }
         return predicate;
     }
@@ -85,12 +122,22 @@ public record AllOfPredicate(
         return predicate;
     }
     
-    public override TxPredicate ToTxPredicate()
+    public override SpecSubmit.TxPredicate ToTxPredicate()
     {
-        var predicate = new TxPredicate();
-        foreach (var p in Predicates)
+        SpecSubmit.TxPredicate predicate = new();
+        foreach (Predicate p in Predicates)
         {
             predicate.AllOf.Add(p.ToTxPredicate());
+        }
+        return predicate;
+    }
+    
+    public override SpecWatch.TxPredicate ToWatchTxPredicate()
+    {
+        SpecWatch.TxPredicate predicate = new();
+        foreach (Predicate p in Predicates)
+        {
+            predicate.AllOf.Add(p.ToWatchTxPredicate());
         }
         return predicate;
     }
@@ -110,12 +157,22 @@ public record AnyOfPredicate(
         return predicate;
     }
     
-    public override TxPredicate ToTxPredicate()
+    public override SpecSubmit.TxPredicate ToTxPredicate()
     {
-        var predicate = new TxPredicate();
-        foreach (var p in Predicates)
+        SpecSubmit.TxPredicate predicate = new();
+        foreach (Predicate p in Predicates)
         {
             predicate.AnyOf.Add(p.ToTxPredicate());
+        }
+        return predicate;
+    }
+    
+    public override SpecWatch.TxPredicate ToWatchTxPredicate()
+    {
+        SpecWatch.TxPredicate predicate = new();
+        foreach (Predicate p in Predicates)
+        {
+            predicate.AnyOf.Add(p.ToWatchTxPredicate());
         }
         return predicate;
     }
@@ -155,17 +212,47 @@ public record AddressPredicate(
         return predicate;
     }
     
-    public override TxPredicate ToTxPredicate()
+    public override SpecSubmit.TxPredicate ToTxPredicate()
     {
-        var predicate = new TxPredicate
+        SpecSubmit.TxPredicate predicate = new()
         {
-            Match = new AnyChainTxPattern
+            Match = new SpecSubmit.AnyChainTxPattern
             {
                 Cardano = new TxPattern()
             }
         };
+
+        AddressPattern addressPattern = new();
         
-        var addressPattern = new AddressPattern();
+        switch (AddressSearch)
+        {
+            case AddressSearchType.ExactAddress:
+                addressPattern.ExactAddress = Google.Protobuf.ByteString.CopyFrom(Address);
+                break;
+            case AddressSearchType.PaymentPart:
+                addressPattern.PaymentPart = Google.Protobuf.ByteString.CopyFrom(Address);
+                break;
+            case AddressSearchType.DelegationPart:
+                addressPattern.DelegationPart = Google.Protobuf.ByteString.CopyFrom(Address);
+                break;
+        }
+        
+        predicate.Match.Cardano.HasAddress = addressPattern;
+        
+        return predicate;
+    }
+    
+    public override SpecWatch.TxPredicate ToWatchTxPredicate()
+    {
+        SpecWatch.TxPredicate predicate = new()
+        {
+            Match = new SpecWatch.AnyChainTxPattern
+            {
+                Cardano = new TxPattern()
+            }
+        };
+
+        AddressPattern addressPattern = new();
         
         switch (AddressSearch)
         {
@@ -217,17 +304,44 @@ public record AssetPredicate(
         return predicate;
     }
     
-    public override TxPredicate ToTxPredicate()
+    public override SpecSubmit.TxPredicate ToTxPredicate()
     {
-        var predicate = new TxPredicate
+        SpecSubmit.TxPredicate predicate = new()
         {
-            Match = new AnyChainTxPattern
+            Match = new SpecSubmit.AnyChainTxPattern
             {
                 Cardano = new TxPattern()
             }
         };
+
+        AssetPattern assetPattern = new();
         
-        var assetPattern = new AssetPattern();
+        switch (AssetSearch)
+        {
+            case AssetSearchType.PolicyId:
+                assetPattern.PolicyId = Google.Protobuf.ByteString.CopyFrom(Asset);
+                break;
+            case AssetSearchType.AssetName:
+                assetPattern.AssetName = Google.Protobuf.ByteString.CopyFrom(Asset);
+                break;
+        }
+        
+        predicate.Match.Cardano.MovesAsset = assetPattern;
+        
+        return predicate;
+    }
+    
+    public override SpecWatch.TxPredicate ToWatchTxPredicate()
+    {
+        SpecWatch.TxPredicate predicate = new()
+        {
+            Match = new SpecWatch.AnyChainTxPattern
+            {
+                Cardano = new TxPattern()
+            }
+        };
+
+        AssetPattern assetPattern = new();
         
         switch (AssetSearch)
         {

@@ -21,6 +21,7 @@ using WalletAddress = Chrysalis.Wallet.Models.Addresses.Address;
 
 namespace Utxorpc.Sdk.Test;
 
+[Collection("Sequential")]
 public class SubmitServiceClientTests
 {
     private const string DOLOS_URL = "http://localhost:50051";
