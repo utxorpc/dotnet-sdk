@@ -9,6 +9,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Utxorpc.Sdk.Example", "src\
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Utxorpc.Sdk", "src\Utxorpc.Sdk\Utxorpc.Sdk.csproj", "{BCC89A3A-2336-410B-977E-2D41D959A58A}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Utxorpc.Sdk.Test", "src\Utxorpc.Sdk.Test\Utxorpc.Sdk.Test.csproj", "{A7C5E0D1-3B2F-4C8A-9E5D-7A6B9C8D1E2F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -23,6 +25,10 @@ Global
 		{BCC89A3A-2336-410B-977E-2D41D959A58A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BCC89A3A-2336-410B-977E-2D41D959A58A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{BCC89A3A-2336-410B-977E-2D41D959A58A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A7C5E0D1-3B2F-4C8A-9E5D-7A6B9C8D1E2F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A7C5E0D1-3B2F-4C8A-9E5D-7A6B9C8D1E2F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A7C5E0D1-3B2F-4C8A-9E5D-7A6B9C8D1E2F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A7C5E0D1-3B2F-4C8A-9E5D-7A6B9C8D1E2F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -30,6 +36,7 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{9E033F3C-066A-4EF5-896D-0F176322FE2F} = {83C2B807-64D8-4D27-8D8D-CB8031686233}
 		{BCC89A3A-2336-410B-977E-2D41D959A58A} = {83C2B807-64D8-4D27-8D8D-CB8031686233}
+		{A7C5E0D1-3B2F-4C8A-9E5D-7A6B9C8D1E2F} = {83C2B807-64D8-4D27-8D8D-CB8031686233}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {681D9701-0F6D-4773-81DF-A68054ED088B}
