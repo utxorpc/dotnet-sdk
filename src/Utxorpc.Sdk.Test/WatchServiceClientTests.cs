@@ -26,7 +26,7 @@ public class WatchServiceClientTests : IAsyncLifetime
 {
     private const string DOLOS_URL = "http://localhost:50051";
     private const string TEST_MNEMONIC = "february next piano since banana hurdle tide soda reward hood luggage bronze polar veteran fold doctor melt usual rose coral mask interest army clump";
-    private const string RECEIVER_ADDRESS = "addr_test1qpflhll6k7cqz2qezl080uv2szr5zwlqxsqakj4z5ldlpts4j8f56k6tyu5dqj5qlhgyrw6jakenfkkt7fd2y7rhuuuquqeeh5";
+    private const string RECEIVER_ADDRESS = "addr_test1qpum0jys999huwckh5wltaclznqpy2je34t8q8ms2sz74x4v465z8v23pjpnxk5hsxstueuejnmku4sfnxx729zdmqhs7tgy54";
     private const string BLOCKFROST_API_KEY = "previewajMhMPYerz9Pd3GsqjayLwP5mgnNnZCC";
     private const int WATCH_TIMEOUT_SECONDS = 120; // 2 minutes
     
@@ -78,7 +78,7 @@ public class WatchServiceClientTests : IAsyncLifetime
             .GetRootKey()
             .Derive(PurposeType.Shelley, DerivationType.HARD)
             .Derive(CoinType.Ada, DerivationType.HARD)
-            .Derive(0, DerivationType.HARD);
+            .Derive(1, DerivationType.HARD);
         
         var paymentKey = accountKey.Derive(RoleType.ExternalChain).Derive(0);
         var stakingKey = accountKey.Derive(RoleType.Staking).Derive(0);
@@ -86,7 +86,7 @@ public class WatchServiceClientTests : IAsyncLifetime
         var pkPub = paymentKey.GetPublicKey();
         var skPub = stakingKey.GetPublicKey();
         var addressBody = HashUtil.Blake2b224(pkPub.Key).Concat(HashUtil.Blake2b224(skPub.Key)).ToArray();
-        var header = new AddressHeader(AddressType.BasePayment, NetworkType.Testnet);
+        var header = new AddressHeader(AddressType.Base, NetworkType.Testnet);
         var senderAddress = new WalletAddress([header.ToByte(), .. addressBody]);
         
         return (paymentKey, senderAddress);

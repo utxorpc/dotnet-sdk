@@ -23,9 +23,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Utxorpc.Sdk\Utxorpc.Sdk.csproj" />
-    <ProjectReference Include="..\..\..\chrysalis\Chrysalis\src\Chrysalis.Cbor\Chrysalis.Cbor.csproj" />
-    <ProjectReference Include="..\..\..\chrysalis\Chrysalis\src\Chrysalis.Tx\Chrysalis.Tx.csproj" />
-    <ProjectReference Include="..\..\..\chrysalis\Chrysalis\src\Chrysalis.Wallet\Chrysalis.Wallet.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Chrysalis" Version="0.7.11" />
   </ItemGroup>
 
   <ItemGroup>
