@@ -19,8 +19,8 @@ public class SyncServiceClientTests
     {
         // Arrange
         var startPoint = new BlockRef(
-            "6d1b288746ce3be63dcf68af9783282a0795c4d22eda4f5daef195f6034ccfc4",
-            84194200UL
+            "e50842b1cc3ac813cb88d1533c3dea0f92e0ea945f53487c1d960c2210d0c3ba",
+            85213090UL
         );
 
         // Act - Get first few events
@@ -40,8 +40,8 @@ public class SyncServiceClientTests
         var firstEvent = events[0];
         Assert.Equal(NextResponseAction.Reset, firstEvent.Action);
         Assert.NotNull(firstEvent.ResetRef);
-        Assert.Equal(84194200UL, firstEvent.ResetRef.Index);
-        Assert.Equal("6d1b288746ce3be63dcf68af9783282a0795c4d22eda4f5daef195f6034ccfc4",
+        Assert.Equal(85213090UL, firstEvent.ResetRef.Index);
+        Assert.Equal("e50842b1cc3ac813cb88d1533c3dea0f92e0ea945f53487c1d960c2210d0c3ba",
             firstEvent.ResetRef.Hash.ToLower());
 
         // If we got a second event, it should be an apply
@@ -51,7 +51,7 @@ public class SyncServiceClientTests
             Assert.Equal(NextResponseAction.Apply, secondEvent.Action);
             Assert.NotNull(secondEvent.AppliedBlock);
             Assert.NotNull(secondEvent.AppliedBlock.Slot);
-            Assert.True(secondEvent.AppliedBlock.Slot > 84194200UL);
+            Assert.True(secondEvent.AppliedBlock.Slot > 85213090UL);
         }
     }
 
@@ -74,8 +74,8 @@ public class SyncServiceClientTests
     {
         // Arrange
         var blockRef = new BlockRef(
-            "6d1b288746ce3be63dcf68af9783282a0795c4d22eda4f5daef195f6034ccfc4",
-            84194200UL
+            "e50842b1cc3ac813cb88d1533c3dea0f92e0ea945f53487c1d960c2210d0c3ba",
+            85213090UL
         );
 
         // Act
@@ -84,9 +84,9 @@ public class SyncServiceClientTests
         // Assert
         Assert.NotNull(block);
         Assert.NotNull(block.Slot);
-        Assert.Equal(84194200UL, block.Slot);
+        Assert.Equal(85213090UL, block.Slot);
         Assert.NotNull(block.Hash);
-        Assert.Equal("6d1b288746ce3be63dcf68af9783282a0795c4d22eda4f5daef195f6034ccfc4",
+        Assert.Equal("e50842b1cc3ac813cb88d1533c3dea0f92e0ea945f53487c1d960c2210d0c3ba",
             block.Hash.ToLower());
 
         // Native bytes should exist
@@ -98,8 +98,8 @@ public class SyncServiceClientTests
     {
         // Arrange
         var startRef = new BlockRef(
-            "6d1b288746ce3be63dcf68af9783282a0795c4d22eda4f5daef195f6034ccfc4",
-            84194200UL
+            "e50842b1cc3ac813cb88d1533c3dea0f92e0ea945f53487c1d960c2210d0c3ba",
+            85213090UL
         );
         var maxItems = 5u;
 
@@ -115,9 +115,9 @@ public class SyncServiceClientTests
         // First block should match our start reference
         var firstBlock = response.Blocks[0];
         Assert.NotNull(firstBlock.Slot);
-        Assert.Equal(84194200UL, firstBlock.Slot);
+        Assert.Equal(85213090UL, firstBlock.Slot);
         Assert.NotNull(firstBlock.Hash);
-        Assert.Equal("6d1b288746ce3be63dcf68af9783282a0795c4d22eda4f5daef195f6034ccfc4",
+        Assert.Equal("e50842b1cc3ac813cb88d1533c3dea0f92e0ea945f53487c1d960c2210d0c3ba",
             firstBlock.Hash.ToLower());
 
         // Blocks should be in chronological order (oldest to newest)

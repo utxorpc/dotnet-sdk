@@ -39,31 +39,11 @@ public class WatchServiceClientTests : IAsyncLifetime
         _submitClient = new SubmitServiceClient(DOLOS_URL);
     }
     
-    private static byte[]? _sharedTxCbor;
-    private static readonly SemaphoreSlim _initLock = new(1, 1);
-    private static bool _initialized = false;
-    
     public async Task InitializeAsync()
     {
-        await _initLock.WaitAsync();
-        try
-        {
-            if (!_initialized)
-            {
-                // Submit one asset transaction that all tests will watch for
-                _sharedTxCbor = await BuildAndSubmitTransactionWithAssetAsync(TEST_MNEMONIC, RECEIVER_ADDRESS);
-                
-                
-                // Give transaction time to propagate
-                await Task.Delay(5000);
-                
-                _initialized = true;
-            }
-        }
-        finally
-        {
-            _initLock.Release();
-        }
+        // No longer submitting a shared transaction
+        // Each test will submit its own transaction
+        await Task.CompletedTask;
     }
     
     public Task DisposeAsync()
@@ -265,9 +245,10 @@ public class WatchServiceClientTests : IAsyncLifetime
         });
         
         // Give the watcher time to start
-        await Task.Delay(100);
+        await Task.Delay(1000);
         
-        // Transaction already submitted in InitializeAsync
+        // Submit transaction for this specific test
+        await BuildAndSubmitTransactionWithAssetAsync(TEST_MNEMONIC, RECEIVER_ADDRESS);
 
         // Act - Wait for events
         var events = await watchTask;
@@ -287,7 +268,9 @@ public class WatchServiceClientTests : IAsyncLifetime
             Assert.True(cardanoTx.Outputs.Count > 0, "Transaction should have outputs");
             
             var hasAddressInOutputs = cardanoTx.Outputs.Any(output => 
-                output.Address?.ToByteArray().SequenceEqual(addressBytes) == true);
+            {
+                return output.Address?.ToByteArray().SequenceEqual(addressBytes) == true;
+            });
             
             Assert.True(hasAddressInOutputs, "Watched address should be found in transaction outputs");
         }
@@ -298,7 +281,8 @@ public class WatchServiceClientTests : IAsyncLifetime
     {
         // Arrange
         var receiverAddr = new WalletAddress(RECEIVER_ADDRESS);
-        var paymentCredBytes = receiverAddr.ToBytes().Skip(1).Take(28).ToArray(); // Extract payment credential
+        // Correct payment credential for addr_test1qpum0jys999huwckh5wltaclznqpy2je34t8q8ms2sz74x4v465z8v23pjpnxk5hsxstueuejnmku4sfnxx729zdmqhs7tgy54
+        var paymentCredBytes = Convert.FromHexString("79b7c890294b7e3b16bd1df5f71f14c0122a598d56701f705405ea9a");
         var paymentPredicate = new AddressPredicate(paymentCredBytes, AddressSearchType.PaymentPart);
         
         var cts = new CancellationTokenSource(TimeSpan.FromSeconds(WATCH_TIMEOUT_SECONDS));
@@ -316,9 +300,10 @@ public class WatchServiceClientTests : IAsyncLifetime
         });
         
         // Give the watcher time to start
-        await Task.Delay(100);
+        await Task.Delay(1000);
         
-        // Transaction already submitted in InitializeAsync
+        // Submit transaction for this specific test
+        await BuildAndSubmitTransactionWithAssetAsync(TEST_MNEMONIC, RECEIVER_ADDRESS);
 
         // Act - Wait for events
         var events = await watchTask;
@@ -358,7 +343,8 @@ public class WatchServiceClientTests : IAsyncLifetime
     {
         // Arrange
         var receiverAddr = new WalletAddress(RECEIVER_ADDRESS);
-        var delegationCredBytes = receiverAddr.ToBytes().Skip(29).Take(28).ToArray(); // Extract delegation credential
+        // Correct delegation credential for addr_test1qpum0jys999huwckh5wltaclznqpy2je34t8q8ms2sz74x4v465z8v23pjpnxk5hsxstueuejnmku4sfnxx729zdmqhs7tgy54
+        var delegationCredBytes = Convert.FromHexString("acaea823b1510c83335a9781a0be679994f76e5609998de5144dd82f");
         var delegationPredicate = new AddressPredicate(delegationCredBytes, AddressSearchType.DelegationPart);
         
         var cts = new CancellationTokenSource(TimeSpan.FromSeconds(WATCH_TIMEOUT_SECONDS));
@@ -376,9 +362,10 @@ public class WatchServiceClientTests : IAsyncLifetime
         });
         
         // Give the watcher time to start
-        await Task.Delay(100);
+        await Task.Delay(1000);
         
-        // Transaction already submitted in InitializeAsync
+        // Submit transaction for this specific test
+        await BuildAndSubmitTransactionWithAssetAsync(TEST_MNEMONIC, RECEIVER_ADDRESS);
 
         // Act - Wait for events
         var events = await watchTask;
@@ -433,9 +420,10 @@ public class WatchServiceClientTests : IAsyncLifetime
         });
         
         // Give the watcher time to start
-        await Task.Delay(100);
+        await Task.Delay(1000);
         
-        // Transaction already submitted in InitializeAsync
+        // Submit transaction for this specific test
+        await BuildAndSubmitTransactionWithAssetAsync(TEST_MNEMONIC, RECEIVER_ADDRESS);
 
         // Act - Wait for events
         var events = await watchTask;
@@ -484,9 +472,10 @@ public class WatchServiceClientTests : IAsyncLifetime
         });
         
         // Give the watcher time to start
-        await Task.Delay(100);
+        await Task.Delay(1000);
         
-        // Transaction already submitted in InitializeAsync
+        // Submit transaction for this specific test
+        await BuildAndSubmitTransactionWithAssetAsync(TEST_MNEMONIC, RECEIVER_ADDRESS);
 
         // Act - Wait for events
         var events = await watchTask;
