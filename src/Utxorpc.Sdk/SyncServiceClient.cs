@@ -140,27 +140,29 @@ public class SyncServiceClient
         using AsyncServerStreamingCall<FollowTipResponse>? call = _client.FollowTip(request, cancellationToken: cancellationToken);
         await foreach (FollowTipResponse? response in call.ResponseStream.ReadAllAsync(cancellationToken))
         {
+            BlockRef? tip = DataUtils.FromSyncBlockRef(response.Tip);
+
             switch (response.ActionCase)
             {
                 case FollowTipResponse.ActionOneofCase.Apply:
                     Block? applyBlock = DataUtils.FromAnyChainBlock(response.Apply);
                     if (applyBlock is not null)
                     {
-                        yield return DataUtils.CreateApplyResponse(applyBlock);
+                        yield return DataUtils.CreateApplyResponse(applyBlock, tip);
                     }
                     break;
                 case FollowTipResponse.ActionOneofCase.Undo:
                     Block? undoBlock = DataUtils.FromAnyChainBlock(response.Undo);
                     if (undoBlock is not null)
                     {
-                        yield return DataUtils.CreateUndoResponse(undoBlock);
+                        yield return DataUtils.CreateUndoResponse(undoBlock, tip);
                     }
                     break;
                 case FollowTipResponse.ActionOneofCase.Reset:
                     BlockRef? resetRef = DataUtils.FromSyncBlockRef(response.Reset);
                     if (resetRef != null)
                     {
-                        yield return DataUtils.CreateResetResponse(resetRef);
+                        yield return DataUtils.CreateResetResponse(resetRef, tip);
                     }
                     break;
             }
