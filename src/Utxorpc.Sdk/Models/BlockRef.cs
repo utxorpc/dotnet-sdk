@@ -2,5 +2,7 @@ namespace Utxorpc.Sdk.Models;
 
 public record BlockRef(
     string Hash,
-    ulong Index
+    ulong Slot,
+    ulong? Height = null,
+    ulong? Timestamp = null
 );

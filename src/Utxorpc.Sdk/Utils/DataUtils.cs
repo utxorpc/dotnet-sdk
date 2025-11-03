@@ -58,20 +58,23 @@ public static class DataUtils
     public static BlockRef? FromSyncBlockRef(SpecSyncBlockRef? syncBlockRef)
     {
         if (syncBlockRef == null) return null;
-        
+
         return new BlockRef(
             Convert.ToHexString(syncBlockRef.Hash.ToByteArray()),
-            syncBlockRef.Index
+            syncBlockRef.Slot,
+            syncBlockRef.Height,
+            syncBlockRef.Timestamp
         );
     }
 
     public static BlockRef? FromWatchBlockRef(SpecWatchBlockRef? watchBlockRef)
     {
         if (watchBlockRef == null) return null;
-        
+
         return new BlockRef(
             Convert.ToHexString(watchBlockRef.Hash.ToByteArray()),
-            watchBlockRef.Index
+            watchBlockRef.Slot,
+            watchBlockRef.Height
         );
     }
 
@@ -80,7 +83,9 @@ public static class DataUtils
         return new SpecSyncBlockRef
         {
             Hash = ByteString.CopyFrom(Convert.FromHexString(blockRef.Hash)),
-            Index = blockRef.Index
+            Slot = blockRef.Slot,
+            Height = blockRef.Height ?? 0,
+            Timestamp = blockRef.Timestamp ?? 0
         };
     }
 
@@ -89,7 +94,8 @@ public static class DataUtils
         return new SpecWatchBlockRef
         {
             Hash = ByteString.CopyFrom(Convert.FromHexString(blockRef.Hash)),
-            Index = blockRef.Index
+            Slot = blockRef.Slot,
+            Height = blockRef.Height ?? 0
         };
     }
 
@@ -142,7 +148,7 @@ public static class DataUtils
     public static SubmitTxResponse FromSpecSubmitTxResponse(SpecSubmitTxResponse specResponse)
     {
         return new SubmitTxResponse(
-            [.. specResponse.Ref.Select(r => r.ToByteArray())]
+            [specResponse.Ref.ToByteArray()]
         );
     }
 
@@ -208,10 +214,12 @@ public static class DataUtils
     public static ChainPoint? FromSpecChainPoint(SpecChainPoint? specChainPoint)
     {
         if (specChainPoint == null) return null;
-        
+
         return new ChainPoint(
             specChainPoint.Slot,
-            specChainPoint.Hash.ToByteArray()
+            specChainPoint.Hash.ToByteArray(),
+            specChainPoint.Height,
+            specChainPoint.Timestamp
         );
     }
 
