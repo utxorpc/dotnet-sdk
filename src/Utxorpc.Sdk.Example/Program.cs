@@ -193,7 +193,7 @@ async Task TestQueryUtxos(string txHashHex, uint index = 0)
                 }
                 
                 // Coin (ADA value)
-                Console.WriteLine($"  Coin: {cardanoOutput.Coin} lovelace ({cardanoOutput.Coin / 1_000_000.0:F6} ADA)");
+                Console.WriteLine($"  Coin: {cardanoOutput.Coin.Int} lovelace ({cardanoOutput.Coin.Int / 1_000_000.0:F6} ADA)");
                 
                 // Assets
                 if (cardanoOutput.Assets != null && cardanoOutput.Assets.Count > 0)
@@ -385,7 +385,7 @@ async Task TestQueryUtxosMulti(string[] utxoSpecs)
                 }
                 
                 // Coin (ADA value)
-                Console.WriteLine($"  Coin: {cardanoOutput.Coin} lovelace ({cardanoOutput.Coin / 1_000_000.0:F6} ADA)");
+                Console.WriteLine($"  Coin: {cardanoOutput.Coin.Int} lovelace ({cardanoOutput.Coin.Int / 1_000_000.0:F6} ADA)");
                 
                 // Assets
                 if (cardanoOutput.Assets != null && cardanoOutput.Assets.Count > 0)
@@ -527,9 +527,9 @@ async Task TestQueryParams()
             
             // Stake parameters
             Console.WriteLine("\nStake Parameters:");
-            Console.WriteLine($"  Stake Key Deposit: {cardanoParams.StakeKeyDeposit / 1_000_000.0:F2} ADA");
-            Console.WriteLine($"  Pool Deposit: {cardanoParams.PoolDeposit / 1_000_000.0:F2} ADA");
-            Console.WriteLine($"  Min Pool Cost: {cardanoParams.MinPoolCost / 1_000_000.0:F2} ADA");
+            Console.WriteLine($"  Stake Key Deposit: {cardanoParams.StakeKeyDeposit.Int / 1_000_000.0:F2} ADA");
+            Console.WriteLine($"  Pool Deposit: {cardanoParams.PoolDeposit.Int / 1_000_000.0:F2} ADA");
+            Console.WriteLine($"  Min Pool Cost: {cardanoParams.MinPoolCost.Int / 1_000_000.0:F2} ADA");
             Console.WriteLine($"  Desired Number of Pools: {cardanoParams.DesiredNumberOfPools}");
             
             // Collateral
@@ -582,8 +582,8 @@ async Task TestQueryParams()
             Console.WriteLine("\nGovernance Parameters:");
             Console.WriteLine($"  Committee Term Limit: {cardanoParams.CommitteeTermLimit} epochs");
             Console.WriteLine($"  Governance Action Validity Period: {cardanoParams.GovernanceActionValidityPeriod} epochs");
-            Console.WriteLine($"  Governance Action Deposit: {cardanoParams.GovernanceActionDeposit / 1_000_000.0:F2} ADA");
-            Console.WriteLine($"  DRep Deposit: {cardanoParams.DrepDeposit / 1_000_000.0:F2} ADA");
+            Console.WriteLine($"  Governance Action Deposit: {cardanoParams.GovernanceActionDeposit.Int / 1_000_000.0:F2} ADA");
+            Console.WriteLine($"  DRep Deposit: {cardanoParams.DrepDeposit.Int / 1_000_000.0:F2} ADA");
             Console.WriteLine($"  DRep Inactivity Period: {cardanoParams.DrepInactivityPeriod} epochs");
             
             // Voting thresholds
@@ -681,7 +681,7 @@ async Task TestSearchUtxos(string searchType, string valueHex)
         
         if (utxo.ParsedState is Utxorpc.V1alpha.Cardano.TxOutput cardanoOutput)
         {
-            Console.WriteLine($"  Value: {cardanoOutput.Coin / 1_000_000.0:F6} ADA");
+            Console.WriteLine($"  Value: {cardanoOutput.Coin.Int / 1_000_000.0:F6} ADA");
             
             // Show assets if searching for assets
             if ((searchType.ToLower() == "asset" || searchType.ToLower() == "policy") && 
@@ -853,7 +853,7 @@ async Task TestWatchMempool(string searchType, string valueHex)
             {
                 if (utxoData.ParsedState is Utxorpc.V1alpha.Cardano.TxOutput cardanoOutput)
                 {
-                    Console.WriteLine($"  Value: {cardanoOutput.Coin / 1_000_000.0:F6} ADA");
+                    Console.WriteLine($"  Value: {cardanoOutput.Coin.Int / 1_000_000.0:F6} ADA");
                     
                     // Show assets if watching for assets
                     if ((searchType.ToLower() == "asset" || searchType.ToLower() == "policy") && 
@@ -881,7 +881,7 @@ async Task TestReadTip()
     {
         Console.WriteLine("\n=== Current Chain Tip ===");
         Console.WriteLine($"  Hash: {tip.Hash}");
-        Console.WriteLine($"  Index: {tip.Index}");
+        Console.WriteLine($"  Height: {tip.Height}");
     }
     else
     {
@@ -955,10 +955,10 @@ async Task TestDumpHistory(ulong? startIndex, string? startHashHex, int count)
     if (response.NextToken != null)
     {
         Console.WriteLine($"\nMore blocks available. Next token:");
-        Console.WriteLine($"  Index: {response.NextToken.Index}");
+        Console.WriteLine($"  Height: {response.NextToken.Height}");
         Console.WriteLine($"  Hash: {response.NextToken.Hash}");
         Console.WriteLine($"\nTo continue, run:");
-        Console.WriteLine($"  dotnet run -- dumphistory {response.NextToken.Index} {response.NextToken.Hash} {count}");
+        Console.WriteLine($"  dotnet run -- dumphistory {response.NextToken.Height} {response.NextToken.Hash} {count}");
     }
 }
 
@@ -1018,7 +1018,7 @@ async Task TestFollowTip(ulong? blockIndex, string? blockHashHex)
                     {
                         Console.WriteLine($"  Reset to:");
                         Console.WriteLine($"    Hash: {response.ResetRef.Hash}");
-                        Console.WriteLine($"    Index: {response.ResetRef.Index}");
+                        Console.WriteLine($"    Height: {response.ResetRef.Height}");
                     }
                     break;
             }

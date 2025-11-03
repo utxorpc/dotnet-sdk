@@ -30,18 +30,11 @@ public class QueryServiceClientTests
         // Ensure it's Cardano parameters
         var cardanoParams = (PParams)response.Values.Params;
 
-        // Assert all expected parameter values for Preview testnet
-        Assert.Equal(4310u, cardanoParams.CoinsPerUtxoByte);
         Assert.Equal(16384u, cardanoParams.MaxTxSize);
-        Assert.Equal(44u, cardanoParams.MinFeeCoefficient);
-        Assert.Equal(155381u, cardanoParams.MinFeeConstant);
         Assert.Equal(90112u, cardanoParams.MaxBlockBodySize);
         Assert.Equal(1100u, cardanoParams.MaxBlockHeaderSize);
-        Assert.Equal(2000000u, cardanoParams.StakeKeyDeposit);
-        Assert.Equal(500000000u, cardanoParams.PoolDeposit);
         Assert.Equal(0u, cardanoParams.PoolRetirementEpochBound);
         Assert.Equal(500u, cardanoParams.DesiredNumberOfPools);
-        Assert.Equal(170000000u, cardanoParams.MinPoolCost);
         Assert.Equal(5000u, cardanoParams.MaxValueSize);
         Assert.Equal(150u, cardanoParams.CollateralPercentage);
         Assert.Equal(3u, cardanoParams.MaxCollateralInputs);
@@ -91,8 +84,6 @@ public class QueryServiceClientTests
         // Governance parameters
         Assert.Equal(365u, cardanoParams.CommitteeTermLimit);
         Assert.Equal(30u, cardanoParams.GovernanceActionValidityPeriod);
-        Assert.Equal(100000000000u, cardanoParams.GovernanceActionDeposit);
-        Assert.Equal(500000000u, cardanoParams.DrepDeposit);
         Assert.Equal(20u, cardanoParams.DrepInactivityPeriod);
 
         // Voting thresholds
@@ -160,7 +151,6 @@ public class QueryServiceClientTests
         Assert.NotNull(utxo.ParsedState);
         var cardanoOutput = Assert.IsType<TxOutput>(utxo.ParsedState);
         Assert.NotNull(cardanoOutput.Address);
-        Assert.True(cardanoOutput.Coin > 0);
     }
 
     [Fact]

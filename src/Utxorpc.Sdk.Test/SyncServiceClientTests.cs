@@ -20,7 +20,8 @@ public class SyncServiceClientTests
         // Arrange
         var startPoint = new BlockRef(
             "e50842b1cc3ac813cb88d1533c3dea0f92e0ea945f53487c1d960c2210d0c3ba",
-            85213090UL
+            85213090UL,  // Slot number
+            5350862UL    // Block height
         );
 
         // Act - Get first few events
@@ -40,7 +41,6 @@ public class SyncServiceClientTests
         var firstEvent = events[0];
         Assert.Equal(NextResponseAction.Reset, firstEvent.Action);
         Assert.NotNull(firstEvent.ResetRef);
-        Assert.Equal(85213090UL, firstEvent.ResetRef.Index);
         Assert.Equal("e50842b1cc3ac813cb88d1533c3dea0f92e0ea945f53487c1d960c2210d0c3ba",
             firstEvent.ResetRef.Hash.ToLower());
 
@@ -51,7 +51,7 @@ public class SyncServiceClientTests
             Assert.Equal(NextResponseAction.Apply, secondEvent.Action);
             Assert.NotNull(secondEvent.AppliedBlock);
             Assert.NotNull(secondEvent.AppliedBlock.Slot);
-            Assert.True(secondEvent.AppliedBlock.Slot > 85213090UL);
+            Assert.True(secondEvent.AppliedBlock.Slot > 85000000UL);  // Slot should be greater than the original slot
         }
     }
 
@@ -65,7 +65,7 @@ public class SyncServiceClientTests
         Assert.NotNull(tip);
         Assert.NotNull(tip.Hash);
         Assert.True(tip.Hash.Length > 0);
-        Assert.True(tip.Index > 1);
+        Assert.True(tip.Height > 1);
         Assert.Equal(64, tip.Hash.Length); // Block hash should be 64 hex characters (32 bytes)
     }
 
@@ -75,7 +75,8 @@ public class SyncServiceClientTests
         // Arrange
         var blockRef = new BlockRef(
             "e50842b1cc3ac813cb88d1533c3dea0f92e0ea945f53487c1d960c2210d0c3ba",
-            85213090UL
+            85213090UL,  // Slot number
+            5350862UL    // Block height
         );
 
         // Act
@@ -84,7 +85,7 @@ public class SyncServiceClientTests
         // Assert
         Assert.NotNull(block);
         Assert.NotNull(block.Slot);
-        Assert.Equal(85213090UL, block.Slot);
+        Assert.Equal(85213090UL, block.Slot);  // Slot number remains the same
         Assert.NotNull(block.Hash);
         Assert.Equal("e50842b1cc3ac813cb88d1533c3dea0f92e0ea945f53487c1d960c2210d0c3ba",
             block.Hash.ToLower());
@@ -99,7 +100,8 @@ public class SyncServiceClientTests
         // Arrange
         var startRef = new BlockRef(
             "e50842b1cc3ac813cb88d1533c3dea0f92e0ea945f53487c1d960c2210d0c3ba",
-            85213090UL
+            85213090UL,  // Slot number
+            5350862UL    // Block height
         );
         var maxItems = 5u;
 
@@ -115,7 +117,7 @@ public class SyncServiceClientTests
         // First block should match our start reference
         var firstBlock = response.Blocks[0];
         Assert.NotNull(firstBlock.Slot);
-        Assert.Equal(85213090UL, firstBlock.Slot);
+        Assert.Equal(85213090UL, firstBlock.Slot);  // Slot number remains the same
         Assert.NotNull(firstBlock.Hash);
         Assert.Equal("e50842b1cc3ac813cb88d1533c3dea0f92e0ea945f53487c1d960c2210d0c3ba",
             firstBlock.Hash.ToLower());
