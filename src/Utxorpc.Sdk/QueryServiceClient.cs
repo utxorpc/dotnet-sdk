@@ -99,4 +99,22 @@ public class QueryServiceClient
         SpecReadParamsResponse response = await _client.ReadParamsAsync(request);
         return DataUtils.FromSpecReadParamsResponse(response);
     }
+
+    public async Task<ReadGenesisResponse> ReadGenesisAsync(FieldMask? fieldMask = null)
+    {
+        ReadGenesisRequest request = new()
+        {
+            FieldMask = fieldMask
+        };
+        return await _client.ReadGenesisAsync(request);
+    }
+
+    public async Task<ReadEraSummaryResponse> ReadEraSummaryAsync(FieldMask? fieldMask = null)
+    {
+        ReadEraSummaryRequest request = new()
+        {
+            FieldMask = fieldMask
+        };
+        return await _client.ReadEraSummaryAsync(request);
+    }
 }

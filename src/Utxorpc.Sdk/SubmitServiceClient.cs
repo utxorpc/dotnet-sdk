@@ -42,19 +42,23 @@ public class SubmitServiceClient
 
     public async Task<SubmitTxResponse> SubmitTxAsync(Tx[] txs)
     {
-        SubmitTxRequest request = new();
+        List<byte[]> refs = [];
 
-        foreach (Tx key in txs)
+        foreach (Tx tx in txs)
         {
-            AnyChainTx protoRef = new()
+            SubmitTxRequest request = new()
             {
-                Raw = ByteString.CopyFrom(key.Raw)
+                Tx = new AnyChainTx
+                {
+                    Raw = ByteString.CopyFrom(tx.Raw)
+                }
             };
-            request.Tx.Add(protoRef);
+
+            SpecSubmitTxResponse response = await _client.SubmitTxAsync(request);
+            refs.Add(response.Ref.ToByteArray());
         }
 
-        SpecSubmitTxResponse response = await _client.SubmitTxAsync(request);
-        return DataUtils.FromSpecSubmitTxResponse(response);
+        return new SubmitTxResponse(refs);
     }
 
     public async IAsyncEnumerable<WatchMempoolResponse> WatchMempoolAsync(Predicate predicate, FieldMask? fieldMask, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)

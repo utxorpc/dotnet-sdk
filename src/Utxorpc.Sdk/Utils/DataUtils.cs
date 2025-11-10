@@ -58,20 +58,23 @@ public static class DataUtils
     public static BlockRef? FromSyncBlockRef(SpecSyncBlockRef? syncBlockRef)
     {
         if (syncBlockRef == null) return null;
-        
+
         return new BlockRef(
             Convert.ToHexString(syncBlockRef.Hash.ToByteArray()),
-            syncBlockRef.Index
+            syncBlockRef.Slot,
+            syncBlockRef.Height,
+            syncBlockRef.Timestamp
         );
     }
 
     public static BlockRef? FromWatchBlockRef(SpecWatchBlockRef? watchBlockRef)
     {
         if (watchBlockRef == null) return null;
-        
+
         return new BlockRef(
             Convert.ToHexString(watchBlockRef.Hash.ToByteArray()),
-            watchBlockRef.Index
+            watchBlockRef.Slot,
+            watchBlockRef.Height
         );
     }
 
@@ -80,7 +83,9 @@ public static class DataUtils
         return new SpecSyncBlockRef
         {
             Hash = ByteString.CopyFrom(Convert.FromHexString(blockRef.Hash)),
-            Index = blockRef.Index
+            Slot = blockRef.Slot,
+            Height = blockRef.Height ?? 0,
+            Timestamp = blockRef.Timestamp ?? 0
         };
     }
 
@@ -89,43 +94,41 @@ public static class DataUtils
         return new SpecWatchBlockRef
         {
             Hash = ByteString.CopyFrom(Convert.FromHexString(blockRef.Hash)),
-            Index = blockRef.Index
+            Slot = blockRef.Slot,
+            Height = blockRef.Height ?? 0
         };
     }
 
     // NextResponse creation methods
-    public static NextResponse CreateApplyResponse(Block block) => 
-        new(NextResponseAction.Apply, AppliedBlock: block);
+    public static NextResponse CreateApplyResponse(Block block, BlockRef? tip = null) =>
+        new(NextResponseAction.Apply, AppliedBlock: block, Tip: tip);
 
-    public static NextResponse CreateUndoResponse(Block block) => 
-        new(NextResponseAction.Undo, UndoneBlock: block);
+    public static NextResponse CreateUndoResponse(Block block, BlockRef? tip = null) =>
+        new(NextResponseAction.Undo, UndoneBlock: block, Tip: tip);
 
-    public static NextResponse CreateResetResponse(BlockRef? blockRef) => 
-        new(NextResponseAction.Reset, ResetRef: blockRef);
+    public static NextResponse CreateResetResponse(BlockRef? blockRef, BlockRef? tip = null) =>
+        new(NextResponseAction.Reset, ResetRef: blockRef, Tip: tip);
 
     // Watch service conversion methods
     public static WatchTxResponse FromSpecWatchTxResponse(SpecWatchTxResponse specResponse)
     {
-        WatchTxAction action;
-        SpecWatch.AnyChainTx? tx;
-        
-        switch (specResponse.ActionCase)
+        return specResponse.ActionCase switch
         {
-            case SpecWatchTxResponse.ActionOneofCase.Apply:
-                action = WatchTxAction.Apply;
-                tx = specResponse.Apply;
-                break;
-            case SpecWatchTxResponse.ActionOneofCase.Undo:
-                action = WatchTxAction.Undo;
-                tx = specResponse.Undo;
-                break;
-            default:
-                throw new InvalidOperationException($"Unknown WatchTxResponse action: {specResponse.ActionCase}");
-        }
-        
+            SpecWatchTxResponse.ActionOneofCase.Apply => FromWatchTxAction(WatchTxAction.Apply, specResponse.Apply),
+            SpecWatchTxResponse.ActionOneofCase.Undo => FromWatchTxAction(WatchTxAction.Undo, specResponse.Undo),
+            SpecWatchTxResponse.ActionOneofCase.Idle => new WatchTxResponse(
+                WatchTxAction.Idle,
+                IdleBlockRef: FromWatchBlockRef(specResponse.Idle)
+            ),
+            _ => throw new InvalidOperationException($"Unknown WatchTxResponse action: {specResponse.ActionCase}")
+        };
+    }
+
+    private static WatchTxResponse FromWatchTxAction(WatchTxAction action, SpecWatch.AnyChainTx? tx)
+    {
         byte[]? raw = null;
         object? parsedState = null;
-        
+
         if (tx is not null)
         {
             parsedState = tx.ChainCase switch
@@ -134,7 +137,7 @@ public static class DataUtils
                 _ => throw new InvalidOperationException($"Unsupported chain type: {tx.ChainCase}"),
             };
         }
-        
+
         return new WatchTxResponse(action, raw, parsedState);
     }
 
@@ -142,7 +145,7 @@ public static class DataUtils
     public static SubmitTxResponse FromSpecSubmitTxResponse(SpecSubmitTxResponse specResponse)
     {
         return new SubmitTxResponse(
-            [.. specResponse.Ref.Select(r => r.ToByteArray())]
+            [specResponse.Ref.ToByteArray()]
         );
     }
 
@@ -208,21 +211,24 @@ public static class DataUtils
     public static ChainPoint? FromSpecChainPoint(SpecChainPoint? specChainPoint)
     {
         if (specChainPoint == null) return null;
-        
+
         return new ChainPoint(
             specChainPoint.Slot,
-            specChainPoint.Hash.ToByteArray()
+            specChainPoint.Hash.ToByteArray(),
+            specChainPoint.Height,
+            specChainPoint.Timestamp
         );
     }
 
     public static AnyUtxoData? FromSpecAnyUtxoData(SpecAnyUtxoData? specUtxoData)
     {
         if (specUtxoData == null) return null;
-        
+
         return new AnyUtxoData(
             specUtxoData.NativeBytes.ToByteArray(),
             FromSpecTxoRef(specUtxoData.TxoRef),
-            specUtxoData.ParsedStateCase == SpecAnyUtxoData.ParsedStateOneofCase.Cardano ? specUtxoData.Cardano : null
+            specUtxoData.ParsedStateCase == SpecAnyUtxoData.ParsedStateOneofCase.Cardano ? specUtxoData.Cardano : null,
+            FromSpecChainPoint(specUtxoData.BlockRef)
         );
     }
 

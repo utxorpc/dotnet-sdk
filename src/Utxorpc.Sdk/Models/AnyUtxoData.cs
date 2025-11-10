@@ -3,5 +3,6 @@ namespace Utxorpc.Sdk.Models;
 public record AnyUtxoData(
     byte[]? NativeBytes,
     TxoRef? TxoRef,
-    object? ParsedState = null 
+    object? ParsedState = null,
+    ChainPoint? BlockRef = null
 );

@@ -5,5 +5,6 @@ public record NextResponse(
     NextResponseAction Action,
     Block? AppliedBlock = null,
     Block? UndoneBlock = null,
-    BlockRef? ResetRef = null
+    BlockRef? ResetRef = null,
+    BlockRef? Tip = null
 );
