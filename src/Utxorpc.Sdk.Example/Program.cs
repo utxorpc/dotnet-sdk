@@ -179,7 +179,7 @@ async Task TestQueryUtxos(string txHashHex, uint index = 0)
             Console.WriteLine($"  Type: {type.FullName}");
             
             // Check if it's Cardano TxOutput
-            if (utxo.ParsedState is Utxorpc.V1alpha.Cardano.TxOutput cardanoOutput)
+            if (utxo.ParsedState is Utxorpc.V1Alpha.Cardano.TxOutput cardanoOutput)
             {
                 Console.WriteLine("\nCardano UTXO Details:");
                 
@@ -371,7 +371,7 @@ async Task TestQueryUtxosMulti(string[] utxoSpecs)
             Console.WriteLine($"  Type: {type.FullName}");
             
             // Check if it's Cardano TxOutput
-            if (utxo.ParsedState is Utxorpc.V1alpha.Cardano.TxOutput cardanoOutput)
+            if (utxo.ParsedState is Utxorpc.V1Alpha.Cardano.TxOutput cardanoOutput)
             {
                 Console.WriteLine("\nCardano UTXO Details:");
                 
@@ -508,7 +508,7 @@ async Task TestQueryParams()
         Console.WriteLine($"Type: {response.Values.Params.GetType().FullName}");
         
         // Check if it's Cardano parameters
-        if (response.Values.Params is Utxorpc.V1alpha.Cardano.PParams cardanoParams)
+        if (response.Values.Params is Utxorpc.V1Alpha.Cardano.PParams cardanoParams)
         {
             Console.WriteLine("\n=== Cardano Protocol Parameters ===");
             
@@ -679,7 +679,7 @@ async Task TestSearchUtxos(string searchType, string valueHex)
             Console.WriteLine($"  Index: {utxo.TxoRef.Index}");
         }
         
-        if (utxo.ParsedState is Utxorpc.V1alpha.Cardano.TxOutput cardanoOutput)
+        if (utxo.ParsedState is Utxorpc.V1Alpha.Cardano.TxOutput cardanoOutput)
         {
             Console.WriteLine($"  Value: {cardanoOutput.Coin.Int / 1_000_000.0:F6} ADA");
             
@@ -777,7 +777,7 @@ async Task TestWatchTx(string searchType, string valueHex)
         count++;
         Console.WriteLine($"Transaction #{count}:");
         
-        if (response?.ParsedState is Utxorpc.V1alpha.Cardano.Tx cardanoTx)
+        if (response?.ParsedState is Utxorpc.V1Alpha.Cardano.Tx cardanoTx)
         {
             Console.WriteLine($"  Hash: {Convert.ToBase64String(cardanoTx.Hash?.ToByteArray() ?? Array.Empty<byte>())}");
             Console.WriteLine($"  Inputs: {cardanoTx.Inputs?.Count ?? 0}");
@@ -851,7 +851,7 @@ async Task TestWatchMempool(string searchType, string valueHex)
             // Show parsed transaction details if available
             if (response.Tx.ParsedState != null && response.Tx.ParsedState is AnyUtxoData utxoData)
             {
-                if (utxoData.ParsedState is Utxorpc.V1alpha.Cardano.TxOutput cardanoOutput)
+                if (utxoData.ParsedState is Utxorpc.V1Alpha.Cardano.TxOutput cardanoOutput)
                 {
                     Console.WriteLine($"  Value: {cardanoOutput.Coin.Int / 1_000_000.0:F6} ADA");
                     

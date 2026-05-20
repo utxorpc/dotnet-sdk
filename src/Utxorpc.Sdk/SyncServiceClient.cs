@@ -1,5 +1,5 @@
 ﻿using Grpc.Net.Client;
-using Utxorpc.V1alpha.Sync;
+using Utxorpc.V1Alpha.Sync;
 using Utxorpc.Sdk.Models;
 using Block = Utxorpc.Sdk.Models.Block;
 using Grpc.Core;

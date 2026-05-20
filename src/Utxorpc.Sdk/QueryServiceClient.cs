@@ -3,13 +3,13 @@ using Google.Protobuf.WellKnownTypes;
 using Grpc.Net.Client;
 using Utxorpc.Sdk.Models;
 using Utxorpc.Sdk.Utils;
-using Utxorpc.V1alpha.Query;
+using Utxorpc.V1Alpha.Query;
 using ReadUtxosResponse = Utxorpc.Sdk.Models.ReadUtxosResponse;
 using TxoRef = Utxorpc.Sdk.Models.TxoRef;
-using SpecTxoRef = Utxorpc.V1alpha.Query.TxoRef;
-using SpecReadUtxosResponse = Utxorpc.V1alpha.Query.ReadUtxosResponse;
-using SpecSearchUtxosResponse = Utxorpc.V1alpha.Query.SearchUtxosResponse;
-using SpecReadParamsResponse = Utxorpc.V1alpha.Query.ReadParamsResponse;
+using SpecTxoRef = Utxorpc.V1Alpha.Query.TxoRef;
+using SpecReadUtxosResponse = Utxorpc.V1Alpha.Query.ReadUtxosResponse;
+using SpecSearchUtxosResponse = Utxorpc.V1Alpha.Query.SearchUtxosResponse;
+using SpecReadParamsResponse = Utxorpc.V1Alpha.Query.ReadParamsResponse;
 using SearchUtxosResponse = Utxorpc.Sdk.Models.SearchUtxosResponse;
 using ReadParamsResponse = Utxorpc.Sdk.Models.ReadParamsResponse;
 

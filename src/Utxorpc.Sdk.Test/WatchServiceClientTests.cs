@@ -261,7 +261,7 @@ public class WatchServiceClientTests : IAsyncLifetime
         
         // Verify the transaction involves the watched address
         Assert.NotNull(firstEvent.ParsedState);
-        if (firstEvent.ParsedState is Utxorpc.V1alpha.Cardano.Tx cardanoTx)
+        if (firstEvent.ParsedState is Utxorpc.V1Alpha.Cardano.Tx cardanoTx)
         {
             // Check outputs for the address
             Assert.NotNull(cardanoTx.Outputs);
@@ -316,7 +316,7 @@ public class WatchServiceClientTests : IAsyncLifetime
         
         // Verify the transaction has the payment credential
         Assert.NotNull(firstEvent.ParsedState);
-        if (firstEvent.ParsedState is Utxorpc.V1alpha.Cardano.Tx cardanoTx)
+        if (firstEvent.ParsedState is Utxorpc.V1Alpha.Cardano.Tx cardanoTx)
         {
             var foundPaymentCred = false;
             
@@ -378,7 +378,7 @@ public class WatchServiceClientTests : IAsyncLifetime
         
         // Verify the transaction has the delegation credential
         Assert.NotNull(firstEvent.ParsedState);
-        if (firstEvent.ParsedState is Utxorpc.V1alpha.Cardano.Tx cardanoTx)
+        if (firstEvent.ParsedState is Utxorpc.V1Alpha.Cardano.Tx cardanoTx)
         {
             Assert.NotNull(cardanoTx.Outputs);
             Assert.True(cardanoTx.Outputs.Count > 0, "Transaction should have outputs");
@@ -436,7 +436,7 @@ public class WatchServiceClientTests : IAsyncLifetime
         
         // Verify the transaction contains assets with the policy ID
         Assert.NotNull(firstEvent.ParsedState);
-        if (firstEvent.ParsedState is Utxorpc.V1alpha.Cardano.Tx cardanoTx)
+        if (firstEvent.ParsedState is Utxorpc.V1Alpha.Cardano.Tx cardanoTx)
         {
             Assert.NotNull(cardanoTx.Outputs);
             Assert.True(cardanoTx.Outputs.Count > 0, "Transaction should have outputs");
@@ -488,7 +488,7 @@ public class WatchServiceClientTests : IAsyncLifetime
         
         // Verify the transaction contains the complete asset (policyId + assetName)
         Assert.NotNull(firstEvent.ParsedState);
-        if (firstEvent.ParsedState is Utxorpc.V1alpha.Cardano.Tx cardanoTx)
+        if (firstEvent.ParsedState is Utxorpc.V1Alpha.Cardano.Tx cardanoTx)
         {
             Assert.NotNull(cardanoTx.Outputs);
             Assert.True(cardanoTx.Outputs.Count > 0, "Transaction should have outputs");

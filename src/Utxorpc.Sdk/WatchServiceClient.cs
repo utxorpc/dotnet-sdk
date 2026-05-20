@@ -3,9 +3,9 @@ using Grpc.Core;
 using Grpc.Net.Client;
 using Utxorpc.Sdk.Models;
 using Utxorpc.Sdk.Utils;
-using Utxorpc.V1alpha.Watch;
+using Utxorpc.V1Alpha.Watch;
 using BlockRef = Utxorpc.Sdk.Models.BlockRef;
-using SpecWatch = Utxorpc.V1alpha.Watch;
+using SpecWatch = Utxorpc.V1Alpha.Watch;
 using WatchTxResponse = Utxorpc.Sdk.Models.WatchTxResponse;
 namespace Utxorpc.Sdk;
 
