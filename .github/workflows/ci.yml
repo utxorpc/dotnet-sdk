@@ -1,0 +1,30 @@
+name: CI
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0"
+      - run: dotnet restore
+      - run: dotnet build --no-restore
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0"
+      - run: dotnet restore
+      # Utxorpc.Sdk.Test is a live-server integration suite; it is compiled by
+      # the build job. Run only Category=Unit tests here (none today).
+      - run: dotnet test --filter "Category=Unit"

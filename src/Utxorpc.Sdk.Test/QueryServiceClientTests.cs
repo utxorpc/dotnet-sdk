@@ -1,7 +1,7 @@
 using Xunit;
 using Utxorpc.Sdk.Models;
 using Utxorpc.Sdk.Models.Enums;
-using Utxorpc.V1alpha.Cardano;
+using Utxorpc.V1Alpha.Cardano;
 
 namespace Utxorpc.Sdk.Test;
 

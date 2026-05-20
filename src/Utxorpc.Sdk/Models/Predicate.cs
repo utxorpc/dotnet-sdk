@@ -1,8 +1,8 @@
 using Utxorpc.Sdk.Models.Enums;
-using Utxorpc.V1alpha.Query;
-using SpecSubmit = Utxorpc.V1alpha.Submit;
-using SpecWatch = Utxorpc.V1alpha.Watch;
-using Utxorpc.V1alpha.Cardano;
+using Utxorpc.V1Alpha.Query;
+using SpecSubmit = Utxorpc.V1Alpha.Submit;
+using SpecWatch = Utxorpc.V1Alpha.Watch;
+using Utxorpc.V1Alpha.Cardano;
 
 namespace Utxorpc.Sdk.Models;
 

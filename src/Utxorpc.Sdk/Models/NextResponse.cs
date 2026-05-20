@@ -1,4 +1,4 @@
-using SyncBlockRef = Utxorpc.V1alpha.Sync.BlockRef;
+using SyncBlockRef = Utxorpc.V1Alpha.Sync.BlockRef;
 using Utxorpc.Sdk.Models.Enums;
 namespace Utxorpc.Sdk.Models;
 public record NextResponse(
