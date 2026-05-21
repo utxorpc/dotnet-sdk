@@ -1,0 +1,64 @@
+name: Release
+
+# Conforms to the umbrella SDK release pipeline contract:
+# u5c-factory reference/sdk-pipeline.md
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches package version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          MANIFEST=$(sed -nE 's/.*<Version>(.+)<\/Version>.*/\1/p' src/Utxorpc.Sdk/Utxorpc.Sdk.csproj)
+          if [ "$TAG" != "$MANIFEST" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match Utxorpc.Sdk.csproj version $MANIFEST"
+            exit 1
+          fi
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0"
+      - run: dotnet restore
+      - run: dotnet build --no-restore --configuration Release
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0"
+      - run: dotnet restore
+      # Utxorpc.Sdk.Test is a live-server suite; run only Category=Unit (see ci.yml).
+      - run: dotnet test --filter "Category=Unit"
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0"
+      - name: Pack
+        run: >-
+          dotnet pack src/Utxorpc.Sdk/Utxorpc.Sdk.csproj
+          --configuration Release
+          --output ./nupkgs
+      - name: Publish to NuGet
+        run: >-
+          dotnet nuget push ./nupkgs/*.nupkg
+          --source https://api.nuget.org/v3/index.json
+          --api-key ${{ secrets.NUGET_REGISTRY_TOKEN }}
+          --skip-duplicate
