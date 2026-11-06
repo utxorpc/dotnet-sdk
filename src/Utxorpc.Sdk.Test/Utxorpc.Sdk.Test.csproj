@@ -30,7 +30,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="protocol-vectors/**" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="vectors/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

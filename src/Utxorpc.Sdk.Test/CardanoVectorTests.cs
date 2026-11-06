@@ -5,9 +5,9 @@ using SpecBeta = Utxorpc.V1Beta.Cardano;
 namespace Utxorpc.Sdk.Test;
 
 [Trait("Category", "Unit")]
-public class ProtocolVectorTests
+public class CardanoVectorTests
 {
-    private static readonly string Dir = Path.Combine(AppContext.BaseDirectory, "protocol-vectors");
+    private static readonly string Dir = Path.Combine(AppContext.BaseDirectory, "vectors", "cardano");
 
     public static IEnumerable<object[]> Vectors() =>
         File.ReadAllLines(Path.Combine(Dir, "vectors.tsv"))
