@@ -39,7 +39,7 @@ public sealed class UtxorpcClient : IDisposable
     private UtxorpcClient(string url, IEnumerable<KeyValuePair<string, string>>? headers, int maxAttempts,
         TimeSpan keepAliveInterval, Action<GrpcChannelOptions>? configureChannel)
     {
-        ArgumentNullException.ThrowIfNull(url);
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
         Metadata metadata = CreateHeaders(headers);
         GrpcChannelOptions options = new() { ThrowOperationCanceledOnCancellation = true };
         if (maxAttempts > 1) options.ServiceConfig = CreateServiceConfig(maxAttempts);
@@ -81,11 +81,11 @@ public sealed class UtxorpcClient : IDisposable
     private static string ValidateOptions(UtxorpcClientOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        ArgumentException.ThrowIfNullOrWhiteSpace(options.Url);
-        if (options.MaxAttempts is < 1 or > 5) throw new ArgumentOutOfRangeException(nameof(options.MaxAttempts));
+        if (options.MaxAttempts is < 1 or > 5)
+            throw new ArgumentOutOfRangeException(nameof(options), options.MaxAttempts, "MaxAttempts must be from 1 to 5.");
         if (options.KeepAliveInterval != Timeout.InfiniteTimeSpan && options.KeepAliveInterval < TimeSpan.FromSeconds(1))
-            throw new ArgumentOutOfRangeException(nameof(options.KeepAliveInterval));
-        return options.Url;
+            throw new ArgumentOutOfRangeException(nameof(options), options.KeepAliveInterval, "KeepAliveInterval must be at least 1 second, or infinite.");
+        return options.Url!;
     }
 
     private static ServiceConfig CreateServiceConfig(int maxAttempts) => new()

@@ -15,10 +15,6 @@ using Beta = Utxorpc.V1Beta;
 
 namespace Utxorpc.Sdk.Test;
 
-/// <summary>Isolates process-wide allocation measurements from other test collections.</summary>
-[CollectionDefinition(nameof(ClientAllocationTests), DisableParallelization = true)]
-public sealed class ClientAllocationCollection;
-
 /// <summary>Starts a fresh server and timeout for each client test case.</summary>
 public abstract class ClientTestBase : IAsyncLifetime
 {
@@ -91,8 +87,8 @@ public sealed class ClientOptionsTests : ClientTestBase
         List<ulong> slots = new();
         RpcException error = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            await foreach (Beta.Sync.FollowTipResponse response in client.V1Beta.Sync.FollowTipAsync(null, cancellationToken: cancellation.Token))
-                slots.Add(response.Reset.Slot);
+            await foreach (V1Beta.FollowTipEvent response in client.V1Beta.Sync.FollowTipAsync(null, cancellationToken: cancellation.Token))
+                slots.Add(response.Response.Reset.Slot);
         });
         Assert.Equal(StatusCode.Unavailable, error.StatusCode);
         Assert.Equal(new ulong[] { 1 }, slots);
@@ -104,6 +100,7 @@ public sealed class ClientOptionsTests : ClientTestBase
     [Theory]
     [InlineData("short")]
     [InlineData("raw")]
+    [InlineData("events")]
     public async Task SilentStreamCancellationThrowsOperationCanceled(string path)
     {
         server.State.StreamMessages = 0;
@@ -118,6 +115,10 @@ public sealed class ClientOptionsTests : ClientTestBase
             {
                 await foreach (Beta.Submit.WaitForTxResponse _ in client.V1Beta.Submit.WaitForTxAsync(hash, cancel.Token)) messages++;
             }
+            else if (path == "events")
+            {
+                await foreach (V1Beta.FollowTipEvent _ in client.V1Beta.Sync.FollowTipAsync(null, cancellationToken: cancel.Token)) messages++;
+            }
             else
             {
                 using AsyncServerStreamingCall<Beta.Submit.WaitForTxResponse> call = client.V1Beta.Submit.WaitForTx(
@@ -128,7 +129,7 @@ public sealed class ClientOptionsTests : ClientTestBase
         Assert.IsNotType<RpcException>(error);
         Assert.Equal(0, messages);
         await server.State.WaitForStreamEndAsync("v1beta");
-        AssertCalls("/utxorpc.v1beta.submit.SubmitService/WaitForTx", 1);
+        AssertCalls(path == "events" ? "/utxorpc.v1beta.sync.SyncService/FollowTip" : "/utxorpc.v1beta.submit.SubmitService/WaitForTx", 1);
     }
 
     /// <summary>Surfaces an unavailable stream before any response without another attempt.</summary>
@@ -140,7 +141,7 @@ public sealed class ClientOptionsTests : ClientTestBase
         using UtxorpcClient client = new(server.Url);
         RpcException error = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            await foreach (Beta.Sync.FollowTipResponse _ in client.V1Beta.Sync.FollowTipAsync(null, cancellationToken: cancellation.Token)) { }
+            await foreach (V1Beta.FollowTipEvent _ in client.V1Beta.Sync.FollowTipAsync(null, cancellationToken: cancellation.Token)) { }
         });
         Assert.Equal(StatusCode.Unavailable, error.StatusCode);
         AssertCalls("/utxorpc.v1beta.sync.SyncService/FollowTip", 1);
@@ -209,11 +210,11 @@ public sealed class ClientOptionsTests : ClientTestBase
     [Fact]
     public async Task OptionsConstructorSendsHeaders()
     {
-        UtxorpcClientOptions options = new() { Url = server.Url, Headers = { ["x-test"] = "1" } };
+        UtxorpcClientOptions options = new() { Url = server.Url, Headers = { ["X-Test"] = "0", ["x-test"] = "1" } };
         using UtxorpcClient client = new(options);
         Assert.Equal(42UL, (await client.V1Beta.Sync.ReadTipAsync(cancellation.Token)).Tip.Slot);
         AssertCalls("/utxorpc.v1beta.sync.SyncService/ReadTip", 1);
-        Assert.Contains(new KeyValuePair<string, string>("x-test", "1"), Assert.Single(server.State.Calls).Headers);
+        Assert.Equal(new KeyValuePair<string, string>("x-test", "1"), Assert.Single(Assert.Single(server.State.Calls).Headers, header => header.Key == "x-test"));
         Assert.DoesNotContain("1", options.ToString()!);
     }
 
@@ -224,9 +225,11 @@ public sealed class ClientOptionsTests : ClientTestBase
         Assert.Throws<ArgumentNullException>(() => new UtxorpcClient((UtxorpcClientOptions)null!));
         Assert.Throws<ArgumentNullException>(() => new UtxorpcClient(new UtxorpcClientOptions()));
         Assert.Throws<ArgumentException>(() => new UtxorpcClient(new UtxorpcClientOptions { Url = " " }));
+        Assert.Throws<ArgumentException>(() => new UtxorpcClient(""));
+        Assert.Throws<ArgumentException>(() => new UtxorpcClient(" "));
         foreach (int attempts in new[] { 0, 6 })
-            Assert.Throws<ArgumentOutOfRangeException>(() => new UtxorpcClient(new UtxorpcClientOptions { Url = server.Url, MaxAttempts = attempts }));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new UtxorpcClient(new UtxorpcClientOptions { Url = server.Url, KeepAliveInterval = TimeSpan.Zero }));
+            Assert.Equal("options", Assert.Throws<ArgumentOutOfRangeException>(() => new UtxorpcClient(new UtxorpcClientOptions { Url = server.Url, MaxAttempts = attempts })).ParamName);
+        Assert.Equal("options", Assert.Throws<ArgumentOutOfRangeException>(() => new UtxorpcClient(new UtxorpcClientOptions { Url = server.Url, KeepAliveInterval = TimeSpan.Zero })).ParamName);
         Assert.Throws<ArgumentNullException>(() => UtxorpcServiceCollectionExtensions.AddUtxorpcClient(null!, _ => { }));
         Assert.Throws<ArgumentNullException>(() => new ServiceCollection().AddUtxorpcClient(null!));
         Assert.Throws<ArgumentNullException>(() => UtxorpcServiceCollectionExtensions.AddUtxorpcClient(null!, "a", _ => { }));
@@ -351,7 +354,7 @@ public sealed class ClientOptionsTests : ClientTestBase
 
 /// <summary>Measures short-call parity and the default retry cost without parallel test activity.</summary>
 [Trait("Category", "Unit")]
-[Collection(nameof(ClientAllocationTests))]
+[Collection("Allocation")]
 public sealed class ClientAllocationTests(ITestOutputHelper output) : ClientTestBase
 {
     private const string ReadTipPath = "/utxorpc.v1beta.sync.SyncService/ReadTip";
@@ -367,11 +370,11 @@ public sealed class ClientAllocationTests(ITestOutputHelper output) : ClientTest
             MaxAttempts = 1,
             ConfigureChannel = options => options.HttpHandler = handler
         });
-        (double shortBytes, double rawBytes, int calls) = await MeasureAsync(client, true, client, handler);
-        output.WriteLine($"Retry off: short {shortBytes:F3} B/call; raw {rawBytes:F3} B/call.");
-        Assert.Equal(rawBytes, shortBytes);
-        Assert.Equal(3200, calls);
-        Assert.Equal(3200, handler.Calls);
+        (double[] shortRounds, double[] rawRounds, int calls) = await MeasureAsync(client, true, client, handler);
+        output.WriteLine($"Retry off: short rounds {string.Join(", ", shortRounds)}; raw rounds {string.Join(", ", rawRounds)} B/call.");
+        Assert.Equal(rawRounds, shortRounds);
+        Assert.Equal(5200, calls);
+        Assert.Equal(5200, handler.Calls);
         Assert.True(server.State.Calls.IsEmpty);
     }
 
@@ -381,23 +384,25 @@ public sealed class ClientAllocationTests(ITestOutputHelper output) : ClientTest
     {
         using UtxorpcClient retry = new(new UtxorpcClientOptions { Url = server.Url });
         using UtxorpcClient plain = new(new UtxorpcClientOptions { Url = server.Url, MaxAttempts = 1 });
-        (double retryBytes, double plainBytes, int calls) = await MeasureAsync(retry, false, plain);
-        double extra = retryBytes - plainBytes;
-        output.WriteLine($"Raw: retry on {retryBytes:F3} B/call; retry off {plainBytes:F3} B/call; extra {extra:F3} B/call.");
+        (double[] retryRounds, double[] plainRounds, int calls) = await MeasureAsync(retry, false, plain);
+        // Each round measures both clients back to back; the median of the five differences ignores two noisy rounds.
+        double extra = retryRounds.Zip(plainRounds, static (on, off) => on - off).Order().ElementAt(2);
+        output.WriteLine($"Raw: retry on {string.Join(", ", retryRounds)}; retry off {string.Join(", ", plainRounds)} B/call; median extra {extra:F3} B/call.");
         // The measured +1,248/+1,259 B baseline allows about -250/+350 B of transport noise.
         Assert.InRange(extra, 1000, 1600);
-        Assert.Equal(3200, calls);
+        Assert.Equal(5200, calls);
         Assert.True(server.State.Calls.IsEmpty);
     }
 
-    private async Task<(double, double, int)> MeasureAsync(UtxorpcClient first, bool shortMethod, UtxorpcClient second, ReadTipHandler? handler = null)
+    private async Task<(double[], double[], int)> MeasureAsync(UtxorpcClient first, bool shortMethod, UtxorpcClient second, ReadTipHandler? handler = null)
     {
-        int calls = await ReadTipsAsync(first, shortMethod, 100, handler);
-        calls += await ReadTipsAsync(second, false, 100, handler);
+        using CancellationTokenSource measurement = new(TimeSpan.FromSeconds(30));
+        int calls = await ReadTipsAsync(first, shortMethod, 100, handler, measurement.Token);
+        calls += await ReadTipsAsync(second, false, 100, handler, measurement.Token);
         if (handler is not null) Assert.Equal(200, handler.Calls);
-        double[] firstRounds = new double[3];
-        double[] secondRounds = new double[3];
-        for (int round = 0; round < 3; round++)
+        double[] firstRounds = new double[5];
+        double[] secondRounds = new double[5];
+        for (int round = 0; round < 5; round++)
         {
             int beforeRound = handler?.Calls ?? 0;
             // Alternate order so transport warm-up cannot consistently favor either call.
@@ -407,32 +412,29 @@ public sealed class ClientAllocationTests(ITestOutputHelper output) : ClientTest
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
                 GC.Collect();
-                long before = GC.GetTotalAllocatedBytes(true);
-                calls += await ReadTipsAsync(measureFirst ? first : second, measureFirst && shortMethod, 500, handler);
-                double bytes = (GC.GetTotalAllocatedBytes(true) - before) / 500.0;
+                // With the synchronous stub every measured call completes on this thread, so its own count is exact.
+                long before = handler is null ? GC.GetTotalAllocatedBytes(true) : GC.GetAllocatedBytesForCurrentThread();
+                calls += await ReadTipsAsync(measureFirst ? first : second, measureFirst && shortMethod, 500, handler, measurement.Token, measured: true);
+                double bytes = ((handler is null ? GC.GetTotalAllocatedBytes(true) : GC.GetAllocatedBytesForCurrentThread()) - before) / 500.0;
                 if (measureFirst) firstRounds[round] = bytes;
                 else secondRounds[round] = bytes;
             }
             if (handler is not null) Assert.Equal(1000, handler.Calls - beforeRound);
         }
-        if (handler is not null)
-        {
-            output.WriteLine($"Stub short rounds: {string.Join(", ", firstRounds)}; raw rounds: {string.Join(", ", secondRounds)} B/call.");
-        }
-        Array.Sort(firstRounds);
-        Array.Sort(secondRounds);
-        return (firstRounds[1], secondRounds[1], calls);
+        return (firstRounds, secondRounds, calls);
     }
 
-    private async Task<int> ReadTipsAsync(UtxorpcClient client, bool shortMethod, int count, ReadTipHandler? handler)
+    private async Task<int> ReadTipsAsync(UtxorpcClient client, bool shortMethod, int count, ReadTipHandler? handler, CancellationToken cancellationToken, bool measured = false)
     {
         ulong slots = 0;
         int calls = 0;
         for (int i = 0; i < count; i++)
         {
-            Beta.Sync.ReadTipResponse response = shortMethod
-                ? await client.V1Beta.Sync.ReadTipAsync(cancellation.Token)
-                : await client.V1Beta.Sync.ReadTipAsync(new(), cancellationToken: cancellation.Token);
+            Task<Beta.Sync.ReadTipResponse> pending = shortMethod
+                ? client.V1Beta.Sync.ReadTipAsync(cancellationToken)
+                : client.V1Beta.Sync.ReadTipAsync(new(), cancellationToken: cancellationToken).ResponseAsync;
+            if (measured && handler is not null) Assert.True(pending.IsCompletedSuccessfully, "A stub call completed asynchronously, so a per-thread count would miss bytes.");
+            Beta.Sync.ReadTipResponse response = await pending;
             slots += response.Tip.Slot;
             if (handler is null)
             {

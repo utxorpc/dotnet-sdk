@@ -1,6 +1,7 @@
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.DependencyInjection;
 using Utxorpc.Sdk;
+using Utxorpc.Sdk.V1Beta;
 using Alpha = Utxorpc.V1Alpha;
 using Beta = Utxorpc.V1Beta;
 
@@ -49,10 +50,15 @@ try
     block = await u5c.V1Beta.Sync.FetchBlockAsync(new BlockPoint(tip.Tip.Slot, tip.Tip.Hash.Memory), cancellationToken: cancellation.Token);
     Console.WriteLine($"Block bytes: {block.Block[0].NativeBytes.Length}");
     events = 0;
-    await foreach (Beta.Sync.FollowTipResponse response in
+    await foreach (FollowTipEvent e in
         u5c.V1Beta.Sync.FollowTipAsync(new BlockPoint(tip.Tip.Slot, tip.Tip.Hash.Memory), cancellationToken: cancellation.Token))
     {
-        Console.WriteLine(response.ActionCase);
+        Console.WriteLine(e switch
+        {
+            BlockApplied a => $"Apply: {a.Block.NativeBytes.Length} bytes",
+            BlockUndone u => $"Undo: {u.Block.NativeBytes.Length} bytes",
+            Reset r => $"Reset: {r.Point.Slot}"
+        });
         if (++events == 3)
         {
             break;
@@ -128,5 +134,5 @@ static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient clie
         point, pageSize: 10, cancellationToken: cancellationToken))
         Console.WriteLine(historicalBlock.NativeBytes.Length);
     // Watch chain transactions, stopping after the first.
-    await foreach (Beta.Watch.WatchTxResponse _ in client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: cancellationToken)) break;
+    await foreach (WatchTxEvent _ in client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: cancellationToken)) break;
 }

@@ -32,9 +32,15 @@ internal sealed class FakeSyncV1Alpha(FakeState state) : Alpha.Sync.SyncService.
         state.Requests.Enqueue(request);
         try
         {
-            for (int i = 1; i <= state.StreamMessages; i++)
+            for (int i = 1; i <= (state.MixedActions ? 4 : state.StreamMessages); i++)
             {
-                await responseStream.WriteAsync(new() { Reset = new() { Slot = (ulong)i } });
+                await responseStream.WriteAsync(state.MixedActions ? i switch
+                {
+                    1 => new() { Apply = new() { NativeBytes = ByteString.CopyFrom(new byte[] { 1 }) }, Tip = new() { Slot = 101 } },
+                    2 => new() { Undo = new() { NativeBytes = ByteString.CopyFrom(new byte[] { 2 }) }, Tip = new() { Slot = 102 } },
+                    3 => new() { Reset = new() { Slot = 3 }, Tip = new() { Slot = 103 } },
+                    _ => new() { Tip = new() { Slot = 104 } }
+                } : new() { Reset = new() { Slot = (ulong)i } });
                 if (state.FailAfterFirstMessage) throw new RpcException(new Status(StatusCode.Unavailable, "fake"));
             }
             await Task.Delay(Timeout.Infinite, context.CancellationToken);
@@ -89,9 +95,15 @@ internal sealed class FakeSyncV1Beta(FakeState state) : Beta.Sync.SyncService.Sy
         state.Requests.Enqueue(request);
         try
         {
-            for (int i = 1; i <= state.StreamMessages; i++)
+            for (int i = 1; i <= (state.MixedActions ? 4 : state.StreamMessages); i++)
             {
-                await responseStream.WriteAsync(new() { Reset = new() { Slot = (ulong)i } });
+                await responseStream.WriteAsync(state.MixedActions ? i switch
+                {
+                    1 => new() { Apply = new() { NativeBytes = ByteString.CopyFrom(new byte[] { 1 }) }, Tip = new() { Slot = 101 } },
+                    2 => new() { Undo = new() { NativeBytes = ByteString.CopyFrom(new byte[] { 2 }) }, Tip = new() { Slot = 102 } },
+                    3 => new() { Reset = new() { Slot = 3 }, Tip = new() { Slot = 103 } },
+                    _ => new() { Tip = new() { Slot = 104 } }
+                } : new() { Reset = new() { Slot = (ulong)i } });
                 if (state.FailAfterFirstMessage) throw new RpcException(new Status(StatusCode.Unavailable, "fake"));
             }
             await Task.Delay(Timeout.Infinite, context.CancellationToken);

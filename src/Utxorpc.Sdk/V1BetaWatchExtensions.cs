@@ -1,7 +1,9 @@
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Utxorpc.Sdk.Internal;
+using Utxorpc.Sdk.V1Beta;
 using Utxorpc.V1Beta.Watch;
+using WatchTxCall = (Utxorpc.V1Beta.Watch.WatchService.WatchServiceClient Client, Utxorpc.V1Beta.Watch.WatchTxRequest Request);
 
 namespace Utxorpc.Sdk;
 
@@ -9,8 +11,8 @@ namespace Utxorpc.Sdk;
 public static class V1BetaWatchExtensions
 {
     /// <summary>Watches transactions; an optional point's hash memory must not change until enumeration ends.</summary>
-    /// <remarks>A null predicate watches all transactions; a null point sends no intersection.</remarks>
-    public static IAsyncEnumerable<WatchTxResponse> WatchTxAsync(this WatchService.WatchServiceClient client, TxPredicate? predicate, BlockPoint? from, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
+    /// <remarks>A null predicate watches all transactions; a null point sends no intersection. Each message is a <see cref="WatchTxEvent"/>; one without an action this SDK knows ends the stream with <see cref="InvalidOperationException"/>; the generated <c>WatchTx</c> call returns the Spec messages.</remarks>
+    public static IAsyncEnumerable<WatchTxEvent> WatchTxAsync(this WatchService.WatchServiceClient client, TxPredicate? predicate, BlockPoint? from, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
     {
         WatchTxRequest request = new() { Predicate = predicate, FieldMask = fieldMask };
         if (from is BlockPoint point)
@@ -18,7 +20,7 @@ public static class V1BetaWatchExtensions
             request.Intersect.Capacity = 1;
             request.Intersect.Add(new BlockRef { Slot = point.Slot, Hash = UnsafeByteOperations.UnsafeWrap(point.Hash) });
         }
-        return client.WatchTx(request, cancellationToken: cancellationToken).ReadAllAsync(cancellationToken);
+        return ServerStream.ReadAllAsync<WatchTxCall, WatchTxResponse, WatchTxEvent, WatchTxEvent>((client, request), cancellationToken);
     }
 
     extension(TxPredicate)

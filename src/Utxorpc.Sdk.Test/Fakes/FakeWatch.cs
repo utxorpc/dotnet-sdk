@@ -14,9 +14,15 @@ internal sealed class FakeWatchV1Alpha(FakeState state) : Alpha.WatchService.Wat
         state.Requests.Enqueue(request);
         try
         {
-            for (int i = 1; i <= 2; i++)
+            for (int i = 1; i <= (state.MixedActions ? 4 : 2); i++)
             {
-                await responseStream.WriteAsync(new() { Apply = new() { Block = new() { NativeBytes = ByteString.CopyFrom(new byte[] { (byte)i }) } } });
+                await responseStream.WriteAsync(state.MixedActions ? i switch
+                {
+                    1 => new() { Apply = new() { Block = new() { NativeBytes = ByteString.CopyFrom(new byte[] { 1 }) } } },
+                    2 => new() { Undo = new() { Block = new() { NativeBytes = ByteString.CopyFrom(new byte[] { 2 }) } } },
+                    3 => new() { Idle = new() { Slot = 3 } },
+                    _ => new()
+                } : new() { Apply = new() { Block = new() { NativeBytes = ByteString.CopyFrom(new byte[] { (byte)i }) } } });
             }
             await Task.Delay(Timeout.Infinite, context.CancellationToken);
         }
@@ -37,9 +43,15 @@ internal sealed class FakeWatchV1Beta(FakeState state) : Beta.WatchService.Watch
         state.Requests.Enqueue(request);
         try
         {
-            for (int i = 1; i <= 2; i++)
+            for (int i = 1; i <= (state.MixedActions ? 4 : 2); i++)
             {
-                await responseStream.WriteAsync(new() { Apply = new() { Block = new() { NativeBytes = ByteString.CopyFrom(new byte[] { (byte)i }) } } });
+                await responseStream.WriteAsync(state.MixedActions ? i switch
+                {
+                    1 => new() { Apply = new() { Block = new() { NativeBytes = ByteString.CopyFrom(new byte[] { 1 }) } } },
+                    2 => new() { Undo = new() { Block = new() { NativeBytes = ByteString.CopyFrom(new byte[] { 2 }) } } },
+                    3 => new() { Idle = new() { Slot = 3 } },
+                    _ => new()
+                } : new() { Apply = new() { Block = new() { NativeBytes = ByteString.CopyFrom(new byte[] { (byte)i }) } } });
             }
             await Task.Delay(Timeout.Infinite, context.CancellationToken);
         }

@@ -1,5 +1,5 @@
-using System.Runtime.CompilerServices;
 using Grpc.Core;
+using Utxorpc.Sdk.Internal;
 
 namespace Utxorpc.Sdk;
 
@@ -7,14 +7,6 @@ namespace Utxorpc.Sdk;
 public static class ServerStreamingCallExtensions
 {
     /// <summary>Reads each response and disposes the call when enumeration ends.</summary>
-    public static async IAsyncEnumerable<T> ReadAllAsync<T>(this AsyncServerStreamingCall<T> call, [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        using (call)
-        {
-            while (await call.ResponseStream.MoveNext(cancellationToken).ConfigureAwait(false))
-            {
-                yield return call.ResponseStream.Current;
-            }
-        }
-    }
+    public static IAsyncEnumerable<T> ReadAllAsync<T>(this AsyncServerStreamingCall<T> call, CancellationToken cancellationToken = default) =>
+        ServerStream.ReadAllAsync<AsyncServerStreamingCall<T>, T, T, StartedCall<T>>(call, cancellationToken);
 }

@@ -12,7 +12,7 @@ public static class V1AlphaQueryExtensions
     public static Task<ReadParamsResponse> ReadParamsAsync(this QueryService.QueryServiceClient client, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
         client.ReadParamsAsync(new ReadParamsRequest { FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync;
 
-    /// <summary>Reads outputs without copying hash memory; it must not change until the call returns.</summary>
+    /// <summary>Reads outputs without copying hash memory; it must not change until the returned task completes.</summary>
     public static Task<ReadUtxosResponse> ReadUtxosAsync(this QueryService.QueryServiceClient client, ReadOnlySpan<OutputReference> references, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
     {
         ReadUtxosRequest request = new() { FieldMask = fieldMask };
@@ -25,8 +25,11 @@ public static class V1AlphaQueryExtensions
     }
 
     /// <summary>Reads every matching output across all result pages.</summary>
-    public static IAsyncEnumerable<AnyUtxoData> SearchAllUtxosAsync(this QueryService.QueryServiceClient client, UtxoPredicate predicate, int pageSize = 0, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
-        Paging.ReadAllPagesAsync<QueryService.QueryServiceClient, (UtxoPredicate Predicate, int PageSize, FieldMask? Mask), string, SearchUtxosResponse, AnyUtxoData>(
+    /// <remarks>Page size 0 lets the server choose; a negative one throws.</remarks>
+    public static IAsyncEnumerable<AnyUtxoData> SearchAllUtxosAsync(this QueryService.QueryServiceClient client, UtxoPredicate predicate, int pageSize = 0, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(pageSize);
+        return Paging.ReadAllPagesAsync<QueryService.QueryServiceClient, (UtxoPredicate Predicate, int PageSize, FieldMask? Mask), string, SearchUtxosResponse, AnyUtxoData>(
             client, (predicate, pageSize, fieldMask),
             static (queryClient, state, startToken, ct) =>
             {
@@ -38,12 +41,13 @@ public static class V1AlphaQueryExtensions
             static response => response.Items,
             static response => response.NextToken.Length == 0 ? null : response.NextToken,
             cancellationToken);
+    }
 
     /// <summary>Reads outputs at an exact address; its memory must not change until enumeration ends.</summary>
     public static IAsyncEnumerable<AnyUtxoData> SearchUtxosByAddressAsync(this QueryService.QueryServiceClient client, ReadOnlyMemory<byte> address, int pageSize = 0, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
         client.SearchAllUtxosAsync(UtxoPredicate.Address(exactAddress: address), pageSize, fieldMask, cancellationToken);
 
-    /// <summary>Reads a transaction without copying hash memory; it must not change until the call returns.</summary>
+    /// <summary>Reads a transaction without copying hash memory; it must not change until the returned task completes.</summary>
     public static Task<ReadTxResponse> ReadTxAsync(this QueryService.QueryServiceClient client, ReadOnlyMemory<byte> txHash, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
         client.ReadTxAsync(new ReadTxRequest { Hash = UnsafeByteOperations.UnsafeWrap(txHash), FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync;
 
@@ -55,7 +59,7 @@ public static class V1AlphaQueryExtensions
     public static Task<ReadEraSummaryResponse> ReadEraSummaryAsync(this QueryService.QueryServiceClient client, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
         client.ReadEraSummaryAsync(new ReadEraSummaryRequest { FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync;
 
-    /// <summary>Reads data without copying hash memory; it must not change until the call completes.</summary>
+    /// <summary>Reads data without copying hash memory; it must not change until the returned task completes.</summary>
     public static Task<ReadDataResponse> ReadDataAsync(this QueryService.QueryServiceClient client, ReadOnlySpan<ReadOnlyMemory<byte>> datumHashes, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
     {
         ReadDataRequest request = new() { FieldMask = fieldMask };

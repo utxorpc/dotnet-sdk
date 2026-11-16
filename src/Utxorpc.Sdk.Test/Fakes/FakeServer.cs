@@ -33,6 +33,8 @@ internal sealed class FakeState
     public bool FailAfterFirstMessage { get; set; }
     /// <summary>Gets or sets the number of responses before a stream waits for cancellation.</summary>
     public int StreamMessages { get; set; } = 3;
+    /// <summary>Gets or sets whether streams send every known action followed by an unknown one.</summary>
+    public bool MixedActions { get; set; }
     /// <summary>Gets or sets the serialized block returned by FetchBlock.</summary>
     public byte[]? BlockBytes { get; set; }
     /// <summary>Gets the completion signalled when a streaming handler exits.</summary>

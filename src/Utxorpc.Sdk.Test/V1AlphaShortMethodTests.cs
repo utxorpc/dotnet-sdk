@@ -68,6 +68,7 @@ public sealed class V1AlphaShortMethodTests : IAsyncLifetime
     {
         Query.UtxoPredicate predicate = new Query.UtxoPredicate { Match = new() { Cardano = new() } };
         FieldMask mask = FieldMask.FromString("native_bytes");
+        Assert.Throws<ArgumentOutOfRangeException>(() => client.V1Alpha.Query.SearchAllUtxosAsync(predicate, -1, mask, Token));
         foreach (int pageSize in new[] { 0, 2 })
         {
             List<byte> values = new();
@@ -204,9 +205,10 @@ public sealed class V1AlphaShortMethodTests : IAsyncLifetime
         byte[] hash = [17, 18];
         FieldMask mask = FieldMask.FromString("native_bytes");
         List<ulong> slots = new();
-        await foreach (Sync.FollowTipResponse response in client.V1Alpha.Sync.FollowTipAsync(new BlockPoint(5, hash), mask, Token))
+        await foreach (V1Alpha.FollowTipEvent response in client.V1Alpha.Sync.FollowTipAsync(new BlockPoint(5, hash), mask, Token))
         {
-            slots.Add(response.Reset.Slot);
+            Assert.True(response.TryGetValue(out V1Alpha.Reset reset));
+            slots.Add(reset.Point.Slot);
             if (slots.Count == 3) break;
         }
         Assert.Equal(new ulong[] { 1, 2, 3 }, slots);
@@ -222,7 +224,7 @@ public sealed class V1AlphaShortMethodTests : IAsyncLifetime
     public async Task FollowTipAsyncWithoutPoint()
     {
         FieldMask mask = FieldMask.FromString("native_bytes");
-        await foreach (Sync.FollowTipResponse _ in client.V1Alpha.Sync.FollowTipAsync(null, mask, Token)) break;
+        await foreach (V1Alpha.FollowTipEvent _ in client.V1Alpha.Sync.FollowTipAsync(null, mask, Token)) break;
         Sync.FollowTipRequest request = TakeRequest<Sync.FollowTipRequest>();
         Assert.Equal(mask, request.FieldMask);
         Assert.Empty(request.Intersect);
@@ -346,10 +348,10 @@ public sealed class V1AlphaShortMethodTests : IAsyncLifetime
         Watch.TxPredicate predicate = new Watch.TxPredicate { Match = new() { Cardano = new() } };
         FieldMask mask = FieldMask.FromString("apply.block.native_bytes");
         List<byte> blocks = new();
-        await foreach (Watch.WatchTxResponse response in client.V1Alpha.Watch.WatchTxAsync(predicate, new BlockPoint(5, hash), mask, Token))
+        await foreach (V1Alpha.WatchTxEvent response in client.V1Alpha.Watch.WatchTxAsync(predicate, new BlockPoint(5, hash), mask, Token))
         {
-            Assert.Equal(Watch.WatchTxResponse.ActionOneofCase.Apply, response.ActionCase);
-            blocks.Add(Assert.Single(response.Apply.Block.NativeBytes));
+            Assert.True(response.TryGetValue(out V1Alpha.TxApplied applied));
+            blocks.Add(Assert.Single(applied.Tx.Block.NativeBytes));
             if (blocks.Count == 2) break;
         }
         Assert.Equal(new byte[] { 1, 2 }, blocks);
@@ -359,7 +361,7 @@ public sealed class V1AlphaShortMethodTests : IAsyncLifetime
         Watch.BlockRef point = Assert.Single(request.Intersect);
         Assert.Equal(5UL, point.Slot);
         Assert.True(point.Hash.Span.SequenceEqual(hash));
-        await foreach (Watch.WatchTxResponse _ in client.V1Alpha.Watch.WatchTxAsync(null, null, cancellationToken: Token)) break;
+        await foreach (V1Alpha.WatchTxEvent _ in client.V1Alpha.Watch.WatchTxAsync(null, null, cancellationToken: Token)) break;
         request = TakeRequest<Watch.WatchTxRequest>();
         Assert.Null(request.Predicate);
         Assert.Null(request.FieldMask);
@@ -379,17 +381,14 @@ public sealed class V1AlphaShortMethodTests : IAsyncLifetime
         await foreach (Query.AnyUtxoData _ in client.V1Alpha.Query.SearchUtxosByAddressAsync(hash, fieldMask: mask, cancellationToken: Token)) break;
         await client.V1Alpha.Query.ReadTxAsync(hash, mask, Token);
         await client.V1Alpha.Sync.FetchBlockAsync(new BlockPoint(1, hash), mask, Token);
-        await foreach (Sync.FollowTipResponse _ in client.V1Alpha.Sync.FollowTipAsync(null, mask, Token)) break;
+        await foreach (V1Alpha.FollowTipEvent _ in client.V1Alpha.Sync.FollowTipAsync(null, mask, Token)) break;
         await client.V1Alpha.Query.ReadGenesisAsync(mask, Token);
         await client.V1Alpha.Query.ReadEraSummaryAsync(mask, Token);
         await client.V1Alpha.Query.ReadDataAsync([hash], mask, Token);
         await foreach (Submit.WatchMempoolResponse _ in client.V1Alpha.Submit.WatchMempoolAsync(null, mask, Token)) break;
         await foreach (Sync.AnyChainBlock _ in client.V1Alpha.Sync.DumpAllHistoryAsync(null, 2, mask, Token)) break;
-        await foreach (Watch.WatchTxResponse _ in client.V1Alpha.Watch.WatchTxAsync(null, null, mask, Token)) break;
-        HashSet<System.Type> expected = [typeof(Query.ReadParamsRequest), typeof(Query.ReadUtxosRequest), typeof(Query.SearchUtxosRequest),
-            typeof(Query.ReadTxRequest), typeof(Sync.FetchBlockRequest), typeof(Sync.FollowTipRequest), typeof(Query.ReadGenesisRequest),
-            typeof(Query.ReadEraSummaryRequest), typeof(Query.ReadDataRequest), typeof(Submit.WatchMempoolRequest),
-            typeof(Sync.DumpHistoryRequest), typeof(Watch.WatchTxRequest)];
+        await foreach (V1Alpha.WatchTxEvent _ in client.V1Alpha.Watch.WatchTxAsync(null, null, mask, Token)) break;
+        HashSet<System.Type> expected = SpecCoverageTests.MaskedRequestTypes("V1Alpha");
         HashSet<System.Type> seen = new();
         foreach (IMessage request in server.State.Requests)
         {
@@ -398,6 +397,61 @@ public sealed class V1AlphaShortMethodTests : IAsyncLifetime
         }
         Assert.True(expected.SetEquals(seen));
         Assert.Equal(13, server.State.Requests.Count);
+    }
+
+    /// <summary>Reads each typed case without losing its payload or tip, and ends the call on an unknown action.</summary>
+    [Theory]
+    [InlineData("FollowTip")]
+    [InlineData("WatchTx")]
+    public async Task StreamEventsHaveTheirCase(string call)
+    {
+        server.State.MixedActions = true;
+        if (call == "FollowTip")
+        {
+            await using IAsyncEnumerator<V1Alpha.FollowTipEvent> items = client.V1Alpha.Sync.FollowTipAsync(null, cancellationToken: Token).GetAsyncEnumerator();
+            for (int i = 1; i <= 3; i++)
+            {
+                Assert.True(await items.MoveNextAsync());
+                V1Alpha.FollowTipEvent e = items.Current;
+                int kind = e switch
+                {
+                    V1Alpha.BlockApplied a => Check(a.Block, e.Response.Apply, Assert.Single(a.Block.NativeBytes), 1),
+                    V1Alpha.BlockUndone u => Check(u.Block, e.Response.Undo, Assert.Single(u.Block.NativeBytes), 2),
+                    V1Alpha.Reset r => Check(r.Point, e.Response.Reset, (int)r.Point.Slot, 3)
+                };
+                Assert.Equal(i, kind);
+                Assert.Same(e.Response.Tip, e.Tip);
+                Assert.Equal((ulong)(100 + i), e.Tip!.Slot);
+            }
+            InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() => items.MoveNextAsync().AsTask());
+            Assert.Contains(call, error.Message, StringComparison.Ordinal);
+        }
+        else
+        {
+            await using IAsyncEnumerator<V1Alpha.WatchTxEvent> items = client.V1Alpha.Watch.WatchTxAsync(null, null, cancellationToken: Token).GetAsyncEnumerator();
+            for (int i = 1; i <= 3; i++)
+            {
+                Assert.True(await items.MoveNextAsync());
+                V1Alpha.WatchTxEvent e = items.Current;
+                int kind = e switch
+                {
+                    V1Alpha.TxApplied a => Check(a.Tx, e.Response.Apply, Assert.Single(a.Tx.Block.NativeBytes), 1),
+                    V1Alpha.TxUndone u => Check(u.Tx, e.Response.Undo, Assert.Single(u.Tx.Block.NativeBytes), 2),
+                    V1Alpha.Idle idle => Check(idle.Point, e.Response.Idle, (int)idle.Point.Slot, 3)
+                };
+                Assert.Equal(i, kind);
+            }
+            InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() => items.MoveNextAsync().AsTask());
+            Assert.Contains(call, error.Message, StringComparison.Ordinal);
+        }
+        await server.State.WaitForStreamEndAsync("v1alpha");
+
+        static int Check(object payload, object response, int value, int kind)
+        {
+            Assert.Same(payload, response);
+            Assert.Equal(kind, value);
+            return kind;
+        }
     }
 
     private T TakeRequest<T>() where T : class, IMessage

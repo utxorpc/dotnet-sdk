@@ -29,7 +29,8 @@ jobs:
         with:
           global-json-file: global.json
       - run: dotnet restore
-      - run: dotnet build --no-restore --configuration Release
+      - run: dotnet build --no-restore --configuration Release -warnaserror
+      - run: dotnet format --no-restore --verify-no-changes
 
   test:
     needs: build
@@ -39,7 +40,6 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
-          dotnet-version: 10.0.x
       - run: dotnet restore
       # Live tests (Category=Live) need a server; CI runs the Unit category.
       - run: dotnet test --filter "Category=Unit"

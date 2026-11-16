@@ -115,9 +115,9 @@ public sealed class DingoTests(LiveServer server, ITestOutputHelper output) : IC
         }
         try
         {
-            await foreach (Beta.Watch.WatchTxResponse item in client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: cancellationToken))
+            await foreach (V1Beta.WatchTxEvent item in client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: cancellationToken))
             {
-                if (item.Apply?.Cardano is not { } tx) continue;
+                if (item is not V1Beta.TxApplied { Tx.Cardano: { } tx }) continue;
                 await fixture.ReadIndexedAsync(tx.Hash, cancellationToken);
                 if (await accept(tx.Outputs)) return;
             }

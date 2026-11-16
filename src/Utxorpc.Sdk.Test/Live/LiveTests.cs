@@ -125,12 +125,12 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
     public async Task FollowTipAsync()
     {
         using CancellationTokenSource timeout = Timeout();
-        List<Alpha.Sync.FollowTipResponse> alpha = await TakeAsync(Client.V1Alpha.Sync.FollowTipAsync(null, cancellationToken: timeout.Token), 2);
-        List<Beta.Sync.FollowTipResponse> beta = await TakeAsync(Client.V1Beta.Sync.FollowTipAsync(null, cancellationToken: timeout.Token), 2);
+        List<V1Alpha.FollowTipEvent> alpha = await TakeAsync(Client.V1Alpha.Sync.FollowTipAsync(null, cancellationToken: timeout.Token), 2);
+        List<V1Beta.FollowTipEvent> beta = await TakeAsync(Client.V1Beta.Sync.FollowTipAsync(null, cancellationToken: timeout.Token), 2);
         Assert.Equal(2, alpha.Count);
         Assert.Equal(2, beta.Count);
-        Assert.All(alpha, item => Assert.NotEqual(Alpha.Sync.FollowTipResponse.ActionOneofCase.None, item.ActionCase));
-        Assert.All(beta, item => Assert.NotEqual(Beta.Sync.FollowTipResponse.ActionOneofCase.None, item.ActionCase));
+        foreach (V1Alpha.FollowTipEvent item in alpha) output.WriteLine($"alpha: {item switch { V1Alpha.BlockApplied _ => "apply", V1Alpha.BlockUndone _ => "undo", V1Alpha.Reset _ => "reset" }}; tip={item.Tip is not null}.");
+        foreach (V1Beta.FollowTipEvent item in beta) output.WriteLine($"beta: {item switch { V1Beta.BlockApplied _ => "apply", V1Beta.BlockUndone _ => "undo", V1Beta.Reset _ => "reset" }}; tip={item.Tip is not null}.");
     }
 
     /// <summary>Compares parameters, genesis and eras without comparing moving ledger tips.</summary>
@@ -155,17 +155,17 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
     {
         using CancellationTokenSource timeout = Timeout();
         bool alphaFound = false, betaFound = false;
-        await foreach (Alpha.Watch.WatchTxResponse item in Client.V1Alpha.Watch.WatchTxAsync(null, null, cancellationToken: timeout.Token))
+        await foreach (V1Alpha.WatchTxEvent item in Client.V1Alpha.Watch.WatchTxAsync(null, null, cancellationToken: timeout.Token))
         {
-            if (item.Apply is null) continue;
-            Assert.Equal(32, item.Apply.Cardano.Hash.Length);
+            if (item is not V1Alpha.TxApplied applied) continue;
+            Assert.Equal(32, applied.Tx.Cardano.Hash.Length);
             alphaFound = true;
             break;
         }
-        await foreach (Beta.Watch.WatchTxResponse item in Client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: timeout.Token))
+        await foreach (V1Beta.WatchTxEvent item in Client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: timeout.Token))
         {
-            if (item.Apply is null) continue;
-            Assert.Equal(32, item.Apply.Cardano.Hash.Length);
+            if (item is not V1Beta.TxApplied applied) continue;
+            Assert.Equal(32, applied.Tx.Cardano.Hash.Length);
             betaFound = true;
             break;
         }
@@ -204,11 +204,14 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
         Assert.True(found.Reference.TxHash.Span.SequenceEqual(alpha.TxoRef.Hash.Span));
         Assert.Equal(found.Reference.Index, alpha.TxoRef.Index);
         // Dolos 1.6.3 ignores max_items/start_token: this checks contents, not paging.
-        if (!await CheckAddressAsync(found.Address))
+        bool compared = await CheckAddressAsync(found.Address);
+        if (!compared)
         {
             LiveOutput? alternative = await server.FindAlternativeOutputAsync(found.Address, ct);
-            if (alternative is not null) await CheckAddressAsync(alternative.Address);
+            if (alternative is not null) compared = await CheckAddressAsync(alternative.Address);
         }
+        Assert.True(compared, "No address had at most 200 outputs; the observed search counts are in the test output.");
+        output.WriteLine("Compared complete address searches in both versions.");
         async Task<bool> CheckAddressAsync(ByteString address)
         {
             bool alphaCompared = await CheckSearchAsync(() => Client.V1Alpha.Query.SearchAllUtxosAsync(Alpha.Query.UtxoPredicate.Address(exactAddress: address.Memory), cancellationToken: ct),

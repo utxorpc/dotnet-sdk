@@ -1,7 +1,9 @@
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Utxorpc.Sdk.Internal;
+using Utxorpc.Sdk.V1Beta;
 using Utxorpc.V1Beta.Sync;
+using FollowTipCall = (Utxorpc.V1Beta.Sync.SyncService.SyncServiceClient Client, Utxorpc.V1Beta.Sync.FollowTipRequest Request);
 
 namespace Utxorpc.Sdk;
 
@@ -12,7 +14,7 @@ public static class V1BetaSyncExtensions
     public static Task<ReadTipResponse> ReadTipAsync(this SyncService.SyncServiceClient client, CancellationToken cancellationToken = default) =>
         client.ReadTipAsync(new ReadTipRequest(), cancellationToken: cancellationToken).ResponseAsync;
 
-    /// <summary>Fetches a block without copying hash memory; it must not change until the call returns.</summary>
+    /// <summary>Fetches a block without copying hash memory; it must not change until the returned task completes.</summary>
     /// <remarks>Write the point as <c>new BlockPoint(slot, hash)</c>; for <c>FetchBlockAsync</c>, a bare <c>new(...)</c> picks the generated call.</remarks>
     public static Task<FetchBlockResponse> FetchBlockAsync(this SyncService.SyncServiceClient client, BlockPoint point, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
     {
@@ -23,8 +25,8 @@ public static class V1BetaSyncExtensions
     }
 
     /// <summary>Follows the tip; an optional point's hash memory must not change until enumeration ends.</summary>
-    /// <remarks>Use <c>new BlockPoint(slot, hash)</c> for a point, or <c>null</c> for the server's current tip. Name <c>cancellationToken</c> to omit the mask.</remarks>
-    public static IAsyncEnumerable<FollowTipResponse> FollowTipAsync(this SyncService.SyncServiceClient client, BlockPoint? from, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
+    /// <remarks>Use <c>new BlockPoint(slot, hash)</c> for a point, or <c>null</c> for the server's current tip. Name <c>cancellationToken</c> to omit the mask. Each message is a <see cref="FollowTipEvent"/>; one without an action this SDK knows ends the stream with <see cref="InvalidOperationException"/>; the generated <c>FollowTip</c> call returns the Spec messages.</remarks>
+    public static IAsyncEnumerable<FollowTipEvent> FollowTipAsync(this SyncService.SyncServiceClient client, BlockPoint? from, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
     {
         FollowTipRequest request = new() { FieldMask = fieldMask };
         if (from is BlockPoint point)
@@ -32,7 +34,7 @@ public static class V1BetaSyncExtensions
             request.Intersect.Capacity = 1;
             request.Intersect.Add(new BlockRef { Slot = point.Slot, Hash = UnsafeByteOperations.UnsafeWrap(point.Hash) });
         }
-        return client.FollowTip(request, cancellationToken: cancellationToken).ReadAllAsync(cancellationToken);
+        return ServerStream.ReadAllAsync<FollowTipCall, FollowTipResponse, FollowTipEvent, FollowTipEvent>((client, request), cancellationToken);
     }
 
     /// <summary>Reads every history page; an optional point's hash memory must not change until enumeration ends.</summary>

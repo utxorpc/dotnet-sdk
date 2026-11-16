@@ -63,9 +63,9 @@ public sealed class LiveServer : IDisposable
         LiveSample known = await SampleAsync(bound.Token);
         LiveOutput? found = await FindOutputAsync(known.Transaction, bound.Token);
         if (found is not null) return found;
-        await foreach (Beta.Watch.WatchTxResponse item in Client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: bound.Token))
+        await foreach (V1Beta.WatchTxEvent item in Client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: bound.Token))
         {
-            if (item.Apply?.Cardano is not { } tx) continue;
+            if (item is not V1Beta.TxApplied { Tx.Cardano: { } tx }) continue;
             if (IsDingo) await ReadIndexedAsync(tx.Hash, bound.Token);
             found = await FindOutputAsync(tx, bound.Token);
             if (found is not null) return found;
@@ -81,9 +81,9 @@ public sealed class LiveServer : IDisposable
     {
         using CancellationTokenSource bound = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         bound.CancelAfter(TimeSpan.FromSeconds(180));
-        await foreach (Beta.Watch.WatchTxResponse item in Client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: bound.Token))
+        await foreach (V1Beta.WatchTxEvent item in Client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: bound.Token))
         {
-            if (item.Apply?.Cardano is not { } tx) continue;
+            if (item is not V1Beta.TxApplied { Tx.Cardano: { } tx }) continue;
             Beta.Query.ReadTxResponse? indexed = IsDingo ? await ReadIndexedAsync(tx.Hash, bound.Token) : null;
             if (await FindOutputAsync(tx, bound.Token) is null) continue;
             Beta.Query.ReadTxResponse read = indexed ?? await Client.V1Beta.Query.ReadTxAsync(tx.Hash.Memory, cancellationToken: bound.Token);

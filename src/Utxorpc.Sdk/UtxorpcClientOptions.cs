@@ -10,8 +10,8 @@ public sealed class UtxorpcClientOptions
     /// <summary>Gets or sets the server URL.</summary>
     public string? Url { get; set; }
 
-    /// <summary>Gets the headers sent with every call.</summary>
-    public Dictionary<string, string> Headers { get; } = new();
+    /// <summary>Gets the headers sent with every call; names that differ only in case are one header, as in gRPC.</summary>
+    public Dictionary<string, string> Headers { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Gets or sets the total attempts per retried unary call, from 1 (no retry) to 5; defaults to 3.</summary>
     public int MaxAttempts { get; set; } = 3;

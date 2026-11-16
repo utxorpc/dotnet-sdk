@@ -138,6 +138,115 @@ public sealed class AllocationTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>Requires zero extra bytes per event and exactly two saved references per deferred stream.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task StreamShortMethodsAllocateLikeTheRawStream(bool beta) => CheckStreams(beta, allocations: true);
+
+    /// <summary>Requires each stream to stay unopened until enumerated and to open and dispose its own call each time.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task StreamShortMethodsOpenACallPerEnumeration(bool beta) => CheckStreams(beta, allocations: false);
+
+    private async Task CheckStreams(bool beta, bool allocations)
+    {
+        StubChannel channel = new();
+        using UtxorpcClient client = new(channel);
+        ReadOnlyMemory<byte> hash = new byte[32];
+        if (!beta)
+        {
+            V1AlphaClients a = client.V1Alpha;
+            await CheckStream("v1alpha.FollowTip", channel.Invoker,
+                [new Alpha.Sync.FollowTipResponse { Apply = new(), Tip = new() }, new Alpha.Sync.FollowTipResponse { Undo = new(), Tip = new() }, new Alpha.Sync.FollowTipResponse { Reset = new(), Tip = new() }],
+                () => a.Sync.FollowTipAsync(null), () => a.Sync.FollowTip(new Alpha.Sync.FollowTipRequest()),
+                static e => e switch { V1Alpha.BlockApplied a => a.Block.NativeBytes.Length + 1, V1Alpha.BlockUndone u => u.Block.NativeBytes.Length + 1, V1Alpha.Reset r => (int)r.Point.Slot + 1 },
+                static message => (int)message.ActionCase, allocations);
+            await CheckStream("v1alpha.WatchTx", channel.Invoker,
+                [new Alpha.Watch.WatchTxResponse { Apply = new() { Block = new() } }, new Alpha.Watch.WatchTxResponse { Undo = new() { Block = new() } }, new Alpha.Watch.WatchTxResponse { Idle = new() }],
+                () => a.Watch.WatchTxAsync(null, null), () => a.Watch.WatchTx(new Alpha.Watch.WatchTxRequest()),
+                static e => e switch { V1Alpha.TxApplied a => a.Tx.Block.NativeBytes.Length + 1, V1Alpha.TxUndone u => u.Tx.Block.NativeBytes.Length + 1, V1Alpha.Idle i => (int)i.Point.Slot + 1 },
+                static message => (int)message.ActionCase, allocations);
+            await CheckStream("v1alpha.WaitForTx", channel.Invoker,
+                [new Alpha.Submit.WaitForTxResponse(), new Alpha.Submit.WaitForTxResponse(), new Alpha.Submit.WaitForTxResponse()],
+                () => a.Submit.WaitForTxAsync(hash), () =>
+                {
+                    Alpha.Submit.WaitForTxRequest request = new();
+                    request.Ref.Capacity = 1;
+                    request.Ref.Add(UnsafeByteOperations.UnsafeWrap(hash));
+                    return a.Submit.WaitForTx(request);
+                }, static message => (int)message.Stage + 1, static message => (int)message.Stage + 1, allocations);
+            await CheckStream("v1alpha.WatchMempool", channel.Invoker,
+                [new Alpha.Submit.WatchMempoolResponse { Tx = new() }, new Alpha.Submit.WatchMempoolResponse { Tx = new() }, new Alpha.Submit.WatchMempoolResponse { Tx = new() }],
+                () => a.Submit.WatchMempoolAsync(null), () => a.Submit.WatchMempool(new Alpha.Submit.WatchMempoolRequest()),
+                static message => message.Tx.NativeBytes.Length + 1, static message => message.Tx.NativeBytes.Length + 1, allocations);
+        }
+        else
+        {
+            V1BetaClients b = client.V1Beta;
+            await CheckStream("v1beta.FollowTip", channel.Invoker,
+                [new Beta.Sync.FollowTipResponse { Apply = new(), Tip = new() }, new Beta.Sync.FollowTipResponse { Undo = new(), Tip = new() }, new Beta.Sync.FollowTipResponse { Reset = new(), Tip = new() }],
+                () => b.Sync.FollowTipAsync(null), () => b.Sync.FollowTip(new Beta.Sync.FollowTipRequest()),
+                static e => e switch { V1Beta.BlockApplied a => a.Block.NativeBytes.Length + 1, V1Beta.BlockUndone u => u.Block.NativeBytes.Length + 1, V1Beta.Reset r => (int)r.Point.Slot + 1 },
+                static message => (int)message.ActionCase, allocations);
+            await CheckStream("v1beta.WatchTx", channel.Invoker,
+                [new Beta.Watch.WatchTxResponse { Apply = new() { Block = new() } }, new Beta.Watch.WatchTxResponse { Undo = new() { Block = new() } }, new Beta.Watch.WatchTxResponse { Idle = new() }],
+                () => b.Watch.WatchTxAsync(null, null), () => b.Watch.WatchTx(new Beta.Watch.WatchTxRequest()),
+                static e => e switch { V1Beta.TxApplied a => a.Tx.Block.NativeBytes.Length + 1, V1Beta.TxUndone u => u.Tx.Block.NativeBytes.Length + 1, V1Beta.Idle i => (int)i.Point.Slot + 1 },
+                static message => (int)message.ActionCase, allocations);
+            await CheckStream("v1beta.WaitForTx", channel.Invoker,
+                [new Beta.Submit.WaitForTxResponse(), new Beta.Submit.WaitForTxResponse(), new Beta.Submit.WaitForTxResponse()],
+                () => b.Submit.WaitForTxAsync(hash), () =>
+                {
+                    Beta.Submit.WaitForTxRequest request = new();
+                    request.Ref.Capacity = 1;
+                    request.Ref.Add(UnsafeByteOperations.UnsafeWrap(hash));
+                    return b.Submit.WaitForTx(request);
+                }, static message => (int)message.Stage + 1, static message => (int)message.Stage + 1, allocations);
+            await CheckStream("v1beta.WatchMempool", channel.Invoker,
+                [new Beta.Submit.WatchMempoolResponse { Tx = new() }, new Beta.Submit.WatchMempoolResponse { Tx = new() }, new Beta.Submit.WatchMempoolResponse { Tx = new() }],
+                () => b.Submit.WatchMempoolAsync(null), () => b.Submit.WatchMempool(new Beta.Submit.WatchMempoolRequest()),
+                static message => message.Tx.NativeBytes.Length + 1, static message => message.Tx.NativeBytes.Length + 1, allocations);
+        }
+    }
+
+    private async Task CheckStream<TMessage, TResult>(string name, StubInvoker invoker, TMessage[] messages,
+        Func<IAsyncEnumerable<TResult>> shortStream, Func<AsyncServerStreamingCall<TMessage>> rawCall,
+        Func<TResult, int> readEvent, Func<TMessage, int> readMessage, bool allocations) where TMessage : class
+    {
+        invoker.StreamMessages = messages;
+        if (!allocations)
+        {
+            invoker.StreamLength = 3;
+            int calls = invoker.StreamCalls, disposals = invoker.StreamDisposals;
+            IAsyncEnumerable<TResult> stream = shortStream();
+            Assert.Equal(calls, invoker.StreamCalls);
+            Assert.Equal(3, await ReadStream(stream, readEvent));
+            Assert.Equal(3, await ReadStream(stream, readEvent));
+            Assert.Equal(calls + 2, invoker.StreamCalls);
+            Assert.Equal(disposals + 2, invoker.StreamDisposals);
+            return;
+        }
+        invoker.StreamLength = 1;
+        long short1 = await Measure(() => ReadStream(shortStream(), readEvent));
+        long raw1 = await Measure(() => ReadStream(rawCall().ReadAllAsync(), readMessage));
+        invoker.StreamLength = 31;
+        long short31 = await Measure(() => ReadStream(shortStream(), readEvent));
+        long raw31 = await Measure(() => ReadStream(rawCall().ReadAllAsync(), readMessage));
+        output.WriteLine($"{name}: short1={short1}, raw1={raw1}, short31={short31}, raw31={raw31} B per 1,000 streams.");
+        Assert.Equal(raw31 - raw1, short31 - short1);
+        Assert.Equal(1000 * 2 * IntPtr.Size, short1 - raw1);
+    }
+
+    private static async Task<int> ReadStream<T>(IAsyncEnumerable<T> stream, Func<T, int> read)
+    {
+        int count = 0, sum = 0;
+        await foreach (T item in stream) { sum += read(item); count++; }
+        Assert.True(sum > 0);
+        return count;
+    }
+
     private async Task Compare(string name, Func<Task> shortCall, Func<Task> rawCall)
     {
         long shortBytes = await Measure(shortCall);
@@ -164,6 +273,9 @@ public sealed class AllocationTests(ITestOutputHelper output)
     private sealed class StubInvoker : CallInvoker
     {
         internal Metadata? LastHeaders;
+        internal object[] StreamMessages = [];
+        internal int StreamLength = 3, StreamCalls, StreamDisposals;
+        private static readonly Task<Metadata> Headers = Task.FromResult(Metadata.Empty);
         /// <summary>Records headers and returns the cached completed response.</summary>
         public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(
             Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
@@ -175,15 +287,29 @@ public sealed class AllocationTests(ITestOutputHelper output)
         /// <summary>Rejects blocking calls, which these measurements do not use.</summary>
         public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method,
             string? host, CallOptions options, TRequest request) => throw new NotSupportedException();
-        /// <summary>Rejects server streams, which these unary measurements do not use.</summary>
+        /// <summary>Returns a synchronous stream over the configured messages and counts calls and disposals.</summary>
         public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) => throw new NotSupportedException();
+            Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
+        {
+            StreamCalls++;
+            return new(new StubReader<TResponse>(StreamMessages, StreamLength), static _ => Headers,
+                static _ => Status.DefaultSuccess, static _ => Metadata.Empty, static state => ((StubInvoker)state).StreamDisposals++, this);
+        }
         /// <summary>Rejects client streams, which these unary measurements do not use.</summary>
         public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
             Method<TRequest, TResponse> method, string? host, CallOptions options) => throw new NotSupportedException();
         /// <summary>Rejects duplex streams, which these unary measurements do not use.</summary>
         public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(
             Method<TRequest, TResponse> method, string? host, CallOptions options) => throw new NotSupportedException();
+    }
+
+    private sealed class StubReader<T>(object[] messages, int length) : IAsyncStreamReader<T>
+    {
+        private int index;
+        /// <summary>Gets the message at the current position.</summary>
+        public T Current => (T)messages[(index - 1) % messages.Length];
+        /// <summary>Advances synchronously through the repeated messages with cached completed tasks.</summary>
+        public Task<bool> MoveNext(CancellationToken cancellationToken) => Task.FromResult(++index <= length);
     }
 
     private static class Answer<T> where T : class
