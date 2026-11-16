@@ -79,7 +79,7 @@ public sealed class UtxorpcClientTests : IAsyncLifetime
     {
         using UtxorpcClient client = new(server.Url);
         await foreach (ulong _ in version.FollowTipSlots(client, null, default)) break;
-        await server.State.StreamEnded.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await server.State.WaitForStreamEndAsync(version.Name);
     }
 
     /// <summary>Checks the owned channel's unary cancellation setting.</summary>

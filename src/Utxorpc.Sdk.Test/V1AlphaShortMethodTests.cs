@@ -1,0 +1,212 @@
+using Google.Protobuf;
+using Utxorpc.Sdk.Test.Fakes;
+using Query = Utxorpc.V1Alpha.Query;
+using Submit = Utxorpc.V1Alpha.Submit;
+using Sync = Utxorpc.V1Alpha.Sync;
+
+namespace Utxorpc.Sdk.Test;
+
+/// <summary>Checks v1alpha short-method requests, responses, paging and stream lifetimes.</summary>
+[Trait("Category", "Unit")]
+public sealed class V1AlphaShortMethodTests : IAsyncLifetime
+{
+    private readonly CancellationTokenSource cancellation = new(TimeSpan.FromSeconds(10));
+    private FakeServer server = null!;
+    private UtxorpcClient client = null!;
+    private CancellationToken Token => cancellation.Token;
+
+    /// <summary>Starts a fresh server and client for each case.</summary>
+    public async Task InitializeAsync()
+    {
+        server = await FakeServer.StartAsync();
+        client = new UtxorpcClient(server.Url);
+    }
+
+    /// <summary>Closes the client, token source and fake server.</summary>
+    public async Task DisposeAsync()
+    {
+        client.Dispose();
+        cancellation.Dispose();
+        await server.DisposeAsync();
+    }
+
+    /// <summary>Reads the fake parameter snapshot.</summary>
+    [Fact]
+    public async Task ReadParamsAsync()
+    {
+        Query.ReadParamsResponse response = await client.V1Alpha.Query.ReadParamsAsync(Token);
+        Assert.Equal(7UL, response.LedgerTip.Slot);
+    }
+
+    /// <summary>Preserves output references and their order.</summary>
+    [Fact]
+    public async Task ReadUtxosAsync()
+    {
+        byte[] hashA = [1, 2];
+        byte[] hashB = [3, 4];
+        Query.ReadUtxosResponse response = await client.V1Alpha.Query.ReadUtxosAsync([new(hashA, 0), new(hashB, 3)], Token);
+        Query.ReadUtxosRequest request = TakeRequest<Query.ReadUtxosRequest>();
+        Assert.Equal(2, request.Keys.Count);
+        Assert.True(request.Keys[0].Hash.Span.SequenceEqual(hashA));
+        Assert.Equal(0U, request.Keys[0].Index);
+        Assert.True(request.Keys[1].Hash.Span.SequenceEqual(hashB));
+        Assert.Equal(3U, request.Keys[1].Index);
+        Assert.Equal(2, response.Items.Count);
+        Assert.Equal(request.Keys[0], response.Items[0].TxoRef);
+        Assert.Equal(request.Keys[1], response.Items[1].TxoRef);
+    }
+
+    /// <summary>Reads three pages with default and explicit sizes, preserving token presence.</summary>
+    [Fact]
+    public async Task SearchAllUtxosAsync()
+    {
+        Query.UtxoPredicate predicate = new Query.UtxoPredicate { Match = new() { Cardano = new() } };
+        foreach (int pageSize in new[] { 0, 2 })
+        {
+            List<byte> values = new();
+            await foreach (Query.AnyUtxoData item in client.V1Alpha.Query.SearchAllUtxosAsync(predicate, pageSize, Token))
+            {
+                values.Add(item.NativeBytes[0]);
+            }
+            Assert.Equal(new byte[] { 1, 2, 3 }, values);
+            for (int page = 0; page < 3; page++)
+            {
+                Query.SearchUtxosRequest request = TakeRequest<Query.SearchUtxosRequest>();
+                Assert.Equal(predicate, request.Predicate);
+                Assert.Equal(page == 0 ? "" : $"p{page + 1}", request.StartToken);
+                Assert.Equal(pageSize, request.MaxItems);
+            }
+            Assert.Empty(server.State.Requests);
+        }
+    }
+
+    /// <summary>Builds the exact-address predicate without changing its bytes.</summary>
+    [Fact]
+    public async Task SearchUtxosByAddressAsync()
+    {
+        byte[] address = [5, 6, 7];
+        await foreach (Query.AnyUtxoData _ in client.V1Alpha.Query.SearchUtxosByAddressAsync(address, cancellationToken: Token)) break;
+        Query.SearchUtxosRequest request = TakeRequest<Query.SearchUtxosRequest>();
+        Assert.True(request.Predicate.Match.Cardano.Address.ExactAddress.Span.SequenceEqual(address));
+    }
+
+    /// <summary>Propagates cancellation while a subsequent page is pending.</summary>
+    [Fact]
+    public async Task CancellingWhileSecondPageIsHeldThrowsOperationCanceled()
+    {
+        server.State.HoldSecondPage = true;
+        await using IAsyncEnumerator<Query.AnyUtxoData> items = client.V1Alpha.Query
+            .SearchAllUtxosAsync(new Query.UtxoPredicate(), cancellationToken: Token).GetAsyncEnumerator();
+        Assert.True(await items.MoveNextAsync());
+        Task<bool> pendingPage = items.MoveNextAsync().AsTask();
+        while (server.State.Requests.Count < 2) await Task.Delay(10, Token);
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pendingPage);
+    }
+
+    /// <summary>Passes transaction hash bytes into the generated request.</summary>
+    [Fact]
+    public async Task ReadTxAsync()
+    {
+        byte[] hash = [8, 9, 10];
+        Query.ReadTxResponse response = await client.V1Alpha.Query.ReadTxAsync(hash, Token);
+        Assert.True(response.Tx.NativeBytes.Span.SequenceEqual(hash));
+    }
+
+    /// <summary>Passes transaction bytes through and returns the generated response.</summary>
+    [Fact]
+    public async Task SubmitTxAsync()
+    {
+        byte[] tx = new byte[40];
+        for (int i = 0; i < tx.Length; i++) tx[i] = (byte)i;
+        Submit.SubmitTxResponse response = await client.V1Alpha.Submit.SubmitTxAsync(tx, Token);
+        Assert.True(TakeRequest<Submit.SubmitTxRequest>().Tx.Raw.Span.SequenceEqual(tx));
+        Assert.True(response.Ref.Span.SequenceEqual(tx.AsSpan(0, 32)));
+    }
+
+    /// <summary>Yields the acknowledged, mempool and confirmed stages in order.</summary>
+    [Fact]
+    public async Task WaitForTxAsync()
+    {
+        byte[] hash = [11, 12, 13];
+        List<Submit.Stage> stages = new();
+        await foreach (Submit.WaitForTxResponse response in client.V1Alpha.Submit.WaitForTxAsync(hash, Token))
+        {
+            Assert.True(response.Ref.Span.SequenceEqual(hash));
+            stages.Add(response.Stage);
+            if (stages.Count == 3) break;
+        }
+        Assert.Equal(new[] { Submit.Stage.Acknowledged, Submit.Stage.Mempool, Submit.Stage.Confirmed }, stages);
+        Assert.True(Assert.Single(TakeRequest<Submit.WaitForTxRequest>().Ref).Span.SequenceEqual(hash));
+    }
+
+    /// <summary>Closes the server call when transaction enumeration stops early.</summary>
+    [Fact]
+    public async Task LeavingWaitForTxEndsTheCallOnTheServer()
+    {
+        await foreach (Submit.WaitForTxResponse _ in client.V1Alpha.Submit.WaitForTxAsync(new byte[] { 14 }, Token))
+        {
+            cancellation.CancelAfter(Timeout.InfiniteTimeSpan);
+            Token.ThrowIfCancellationRequested();
+            break;
+        }
+        await server.State.WaitForStreamEndAsync("v1alpha");
+    }
+
+    /// <summary>Reads the fake synchronization tip.</summary>
+    [Fact]
+    public async Task ReadTipAsync()
+    {
+        Sync.ReadTipResponse response = await client.V1Alpha.Sync.ReadTipAsync(Token);
+        Assert.Equal(42UL, response.Tip.Slot);
+    }
+
+    /// <summary>Builds the block reference from a plain block point.</summary>
+    [Fact]
+    public async Task FetchBlockAsync()
+    {
+        byte[] hash = [15, 16];
+        server.State.BlockBytes = [];
+        await client.V1Alpha.Sync.FetchBlockAsync(new BlockPoint(5, hash), Token);
+        await client.V1Alpha.Sync.FetchBlockAsync(new BlockPoint(5, hash)).WaitAsync(Token);
+        await client.V1Alpha.Sync.FetchBlockAsync(new BlockPoint(5, hash), cancellationToken: Token);
+        for (int i = 0; i < 3; i++)
+        {
+            Sync.BlockRef point = Assert.Single(TakeRequest<Sync.FetchBlockRequest>().Ref);
+            Assert.Equal(5UL, point.Slot);
+            Assert.True(point.Hash.Span.SequenceEqual(hash));
+        }
+        Assert.Empty(server.State.Requests);
+    }
+
+    /// <summary>Builds the intersection and yields all configured slots in order.</summary>
+    [Fact]
+    public async Task FollowTipAsync()
+    {
+        byte[] hash = [17, 18];
+        List<ulong> slots = new();
+        await foreach (Sync.FollowTipResponse response in client.V1Alpha.Sync.FollowTipAsync(new BlockPoint(5, hash), Token))
+        {
+            slots.Add(response.Reset.Slot);
+            if (slots.Count == 3) break;
+        }
+        Assert.Equal(new ulong[] { 1, 2, 3 }, slots);
+        Sync.BlockRef point = Assert.Single(TakeRequest<Sync.FollowTipRequest>().Intersect);
+        Assert.Equal(5UL, point.Slot);
+        Assert.True(point.Hash.Span.SequenceEqual(hash));
+    }
+
+    /// <summary>Leaves intersections empty when following without a starting point.</summary>
+    [Fact]
+    public async Task FollowTipAsyncWithoutPoint()
+    {
+        await foreach (Sync.FollowTipResponse _ in client.V1Alpha.Sync.FollowTipAsync(null, Token)) break;
+        Assert.Empty(TakeRequest<Sync.FollowTipRequest>().Intersect);
+    }
+
+    private T TakeRequest<T>() where T : class, IMessage
+    {
+        Assert.True(server.State.Requests.TryDequeue(out IMessage? request));
+        return Assert.IsType<T>(request);
+    }
+}
