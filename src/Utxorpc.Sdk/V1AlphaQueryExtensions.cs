@@ -1,4 +1,5 @@
 using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
 using Utxorpc.Sdk.Internal;
 using Utxorpc.V1Alpha.Query;
 
@@ -25,7 +26,7 @@ public static class V1AlphaQueryExtensions
 
     /// <summary>Reads every matching output across all result pages.</summary>
     public static IAsyncEnumerable<AnyUtxoData> SearchAllUtxosAsync(this QueryService.QueryServiceClient client, UtxoPredicate predicate, int pageSize = 0, CancellationToken cancellationToken = default) =>
-        Paging.ReadAllPagesAsync<QueryService.QueryServiceClient, (UtxoPredicate Predicate, int PageSize), SearchUtxosResponse, AnyUtxoData>(
+        Paging.ReadAllPagesAsync<QueryService.QueryServiceClient, (UtxoPredicate Predicate, int PageSize), string, SearchUtxosResponse, AnyUtxoData>(
             client, (predicate, pageSize),
             static (queryClient, state, startToken, ct) =>
             {
@@ -35,7 +36,7 @@ public static class V1AlphaQueryExtensions
                 return queryClient.SearchUtxosAsync(request, cancellationToken: ct).ResponseAsync;
             },
             static response => response.Items,
-            static response => response.NextToken,
+            static response => response.NextToken.Length == 0 ? null : response.NextToken,
             cancellationToken);
 
     /// <summary>Reads outputs at an exact address; its memory must not change until enumeration ends.</summary>
@@ -48,4 +49,24 @@ public static class V1AlphaQueryExtensions
     /// <summary>Reads a transaction without copying hash memory; it must not change until the call returns.</summary>
     public static Task<ReadTxResponse> ReadTxAsync(this QueryService.QueryServiceClient client, ReadOnlyMemory<byte> txHash, CancellationToken cancellationToken = default) =>
         client.ReadTxAsync(new ReadTxRequest { Hash = UnsafeByteOperations.UnsafeWrap(txHash) }, cancellationToken: cancellationToken).ResponseAsync;
+
+    /// <summary>Reads the chain's genesis configuration.</summary>
+    public static Task<ReadGenesisResponse> ReadGenesisAsync(this QueryService.QueryServiceClient client, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
+        client.ReadGenesisAsync(new ReadGenesisRequest { FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync;
+
+    /// <summary>Reads the chain's era summaries.</summary>
+    public static Task<ReadEraSummaryResponse> ReadEraSummaryAsync(this QueryService.QueryServiceClient client, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
+        client.ReadEraSummaryAsync(new ReadEraSummaryRequest { FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync;
+
+    /// <summary>Reads data without copying hash memory; it must not change until the call completes.</summary>
+    public static Task<ReadDataResponse> ReadDataAsync(this QueryService.QueryServiceClient client, ReadOnlySpan<ReadOnlyMemory<byte>> datumHashes, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
+    {
+        ReadDataRequest request = new() { FieldMask = fieldMask };
+        request.Keys.Capacity = datumHashes.Length;
+        for (int i = 0; i < datumHashes.Length; i++)
+        {
+            request.Keys.Add(UnsafeByteOperations.UnsafeWrap(datumHashes[i]));
+        }
+        return client.ReadDataAsync(request, cancellationToken: cancellationToken).ResponseAsync;
+    }
 }

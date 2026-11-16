@@ -1,3 +1,4 @@
+using Google.Protobuf;
 using Grpc.Core;
 using Alpha = Utxorpc.V1Alpha;
 using Beta = Utxorpc.V1Beta;
@@ -43,6 +44,21 @@ internal sealed class FakeSyncV1Alpha(FakeState state) : Alpha.Sync.SyncService.
             state.StreamEnded.TrySetResult();
         }
     }
+
+    /// <summary>Returns five blocks across three pages with block-reference tokens.</summary>
+    public override Task<Alpha.Sync.DumpHistoryResponse> DumpHistory(Alpha.Sync.DumpHistoryRequest request, ServerCallContext context)
+    {
+        state.Enter(context);
+        state.Requests.Enqueue(request);
+        ulong first = request.StartToken?.Slot ?? 1;
+        Alpha.Sync.DumpHistoryResponse response = new();
+        for (ulong slot = first; slot <= Math.Min(first + 1, 5UL); slot++)
+        {
+            response.Block.Add(new Alpha.Sync.AnyChainBlock { NativeBytes = ByteString.CopyFrom(new byte[] { (byte)slot }) });
+        }
+        if (first < 5) response.NextToken = new() { Slot = first + 2 };
+        return Task.FromResult(response);
+    }
 }
 
 internal sealed class FakeSyncV1Beta(FakeState state) : Beta.Sync.SyncService.SyncServiceBase
@@ -83,5 +99,20 @@ internal sealed class FakeSyncV1Beta(FakeState state) : Beta.Sync.SyncService.Sy
         {
             state.StreamEnded.TrySetResult();
         }
+    }
+
+    /// <summary>Returns five blocks across three pages with block-reference tokens.</summary>
+    public override Task<Beta.Sync.DumpHistoryResponse> DumpHistory(Beta.Sync.DumpHistoryRequest request, ServerCallContext context)
+    {
+        state.Enter(context);
+        state.Requests.Enqueue(request);
+        ulong first = request.StartToken?.Slot ?? 1;
+        Beta.Sync.DumpHistoryResponse response = new();
+        for (ulong slot = first; slot <= Math.Min(first + 1, 5UL); slot++)
+        {
+            response.Block.Add(new Beta.Sync.AnyChainBlock { NativeBytes = ByteString.CopyFrom(new byte[] { (byte)slot }) });
+        }
+        if (first < 5) response.NextToken = new() { Slot = first + 2 };
+        return Task.FromResult(response);
     }
 }

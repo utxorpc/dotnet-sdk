@@ -53,6 +53,35 @@ internal sealed class FakeQueryV1Alpha(FakeState state) : Alpha.QueryService.Que
         state.Requests.Enqueue(request);
         return Task.FromResult(new Alpha.ReadTxResponse { Tx = new() { NativeBytes = request.Hash } });
     }
+
+    /// <summary>Returns a fixed network identifier.</summary>
+    public override Task<Alpha.ReadGenesisResponse> ReadGenesis(Alpha.ReadGenesisRequest request, ServerCallContext context)
+    {
+        state.Enter(context);
+        state.Requests.Enqueue(request);
+        return Task.FromResult(new Alpha.ReadGenesisResponse { Caip2 = "fake:1" });
+    }
+
+    /// <summary>Returns an empty Cardano era summary.</summary>
+    public override Task<Alpha.ReadEraSummaryResponse> ReadEraSummary(Alpha.ReadEraSummaryRequest request, ServerCallContext context)
+    {
+        state.Enter(context);
+        state.Requests.Enqueue(request);
+        return Task.FromResult(new Alpha.ReadEraSummaryResponse { Cardano = new() });
+    }
+
+    /// <summary>Echoes each requested datum key in order.</summary>
+    public override Task<Alpha.ReadDataResponse> ReadData(Alpha.ReadDataRequest request, ServerCallContext context)
+    {
+        state.Enter(context);
+        state.Requests.Enqueue(request);
+        Alpha.ReadDataResponse response = new();
+        for (int i = 0; i < request.Keys.Count; i++)
+        {
+            response.Values.Add(new Alpha.AnyChainDatum { Key = request.Keys[i], NativeBytes = request.Keys[i] });
+        }
+        return Task.FromResult(response);
+    }
 }
 
 internal sealed class FakeQueryV1Beta(FakeState state) : Beta.QueryService.QueryServiceBase
@@ -110,5 +139,34 @@ internal sealed class FakeQueryV1Beta(FakeState state) : Beta.QueryService.Query
         state.Enter(context);
         state.Requests.Enqueue(request);
         return Task.FromResult(new Beta.ReadStateResponse { LedgerTip = new() { Slot = 9 } });
+    }
+
+    /// <summary>Returns a fixed network identifier.</summary>
+    public override Task<Beta.ReadGenesisResponse> ReadGenesis(Beta.ReadGenesisRequest request, ServerCallContext context)
+    {
+        state.Enter(context);
+        state.Requests.Enqueue(request);
+        return Task.FromResult(new Beta.ReadGenesisResponse { Caip2 = "fake:1" });
+    }
+
+    /// <summary>Returns an empty Cardano era summary.</summary>
+    public override Task<Beta.ReadEraSummaryResponse> ReadEraSummary(Beta.ReadEraSummaryRequest request, ServerCallContext context)
+    {
+        state.Enter(context);
+        state.Requests.Enqueue(request);
+        return Task.FromResult(new Beta.ReadEraSummaryResponse { Cardano = new() });
+    }
+
+    /// <summary>Echoes each requested datum key in order.</summary>
+    public override Task<Beta.ReadDataResponse> ReadData(Beta.ReadDataRequest request, ServerCallContext context)
+    {
+        state.Enter(context);
+        state.Requests.Enqueue(request);
+        Beta.ReadDataResponse response = new();
+        for (int i = 0; i < request.Keys.Count; i++)
+        {
+            response.Values.Add(new Beta.AnyChainDatum { Key = request.Keys[i], NativeBytes = request.Keys[i] });
+        }
+        return Task.FromResult(response);
     }
 }

@@ -1,8 +1,10 @@
 using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
 using Utxorpc.Sdk.Test.Fakes;
 using Query = Utxorpc.V1Beta.Query;
 using Submit = Utxorpc.V1Beta.Submit;
 using Sync = Utxorpc.V1Beta.Sync;
+using Watch = Utxorpc.V1Beta.Watch;
 
 namespace Utxorpc.Sdk.Test;
 
@@ -213,6 +215,144 @@ public sealed class V1BetaShortMethodTests : IAsyncLifetime
         Query.ReadStateResponse response = await client.V1Beta.Query.ReadStateAsync(new Utxorpc.V1Beta.Cardano.StateQuery(), Token);
         Assert.Equal(9UL, response.LedgerTip.Slot);
         Assert.NotNull(TakeRequest<Query.ReadStateRequest>().Query.Cardano);
+    }
+
+    /// <summary>Reads the fake genesis configuration with and without a field mask.</summary>
+    [Fact]
+    public async Task ReadGenesisAsync()
+    {
+        Query.ReadGenesisResponse response = await client.V1Beta.Query.ReadGenesisAsync(cancellationToken: Token);
+        Assert.Equal("fake:1", response.Caip2);
+        Assert.Null(TakeRequest<Query.ReadGenesisRequest>().FieldMask);
+        FieldMask mask = FieldMask.FromString("genesis");
+        await client.V1Beta.Query.ReadGenesisAsync(mask, Token);
+        Assert.Equal(mask, TakeRequest<Query.ReadGenesisRequest>().FieldMask);
+        Assert.Empty(server.State.Requests);
+    }
+
+    /// <summary>Reads the fake Cardano era summary.</summary>
+    [Fact]
+    public async Task ReadEraSummaryAsync()
+    {
+        FieldMask mask = FieldMask.FromString("cardano");
+        Query.ReadEraSummaryResponse response = await client.V1Beta.Query.ReadEraSummaryAsync(mask, Token);
+        Assert.Equal(Query.ReadEraSummaryResponse.SummaryOneofCase.Cardano, response.SummaryCase);
+        Assert.Equal(mask, TakeRequest<Query.ReadEraSummaryRequest>().FieldMask);
+    }
+
+    /// <summary>Preserves datum hashes and response order.</summary>
+    [Fact]
+    public async Task ReadDataAsync()
+    {
+        byte[] hashA = [19, 20];
+        byte[] hashB = [21, 22];
+        FieldMask mask = FieldMask.FromString("native_bytes");
+        Query.ReadDataResponse response = await client.V1Beta.Query.ReadDataAsync([hashA, hashB], mask, Token);
+        Query.ReadDataRequest request = TakeRequest<Query.ReadDataRequest>();
+        Assert.Equal(mask, request.FieldMask);
+        Assert.Equal(2, request.Keys.Count);
+        Assert.True(request.Keys[0].Span.SequenceEqual(hashA));
+        Assert.True(request.Keys[1].Span.SequenceEqual(hashB));
+        Assert.Equal(2, response.Values.Count);
+        Assert.Equal(request.Keys[0], response.Values[0].Key);
+        Assert.Equal(request.Keys[1], response.Values[1].Key);
+    }
+
+    /// <summary>Passes raw bytes into a transaction evaluation and returns its report.</summary>
+    [Fact]
+    public async Task EvalTxAsync()
+    {
+        byte[] tx = [23, 24];
+        Submit.EvalTxResponse response = await client.V1Beta.Submit.EvalTxAsync(tx, Token);
+        Assert.True(TakeRequest<Submit.EvalTxRequest>().Tx.Raw.Span.SequenceEqual(tx));
+        Assert.Equal(Submit.AnyChainEval.ChainOneofCase.Cardano, response.Report.ChainCase);
+    }
+
+    /// <summary>Reads the fixed mempool entry and its stage.</summary>
+    [Fact]
+    public async Task ReadMempoolAsync()
+    {
+        Submit.ReadMempoolResponse response = await client.V1Beta.Submit.ReadMempoolAsync(Token);
+        Submit.TxInMempool item = Assert.Single(response.Items);
+        Assert.True(item.Ref.Span.SequenceEqual(new byte[] { 9 }));
+        Assert.Equal(Submit.Stage.Mempool, item.Stage);
+    }
+
+    /// <summary>Preserves a typed mempool predicate and yields changes in order.</summary>
+    [Fact]
+    public async Task WatchMempoolAsync()
+    {
+        Submit.TxPredicate predicate = new Submit.TxPredicate { Match = new() { Cardano = new() } };
+        FieldMask mask = FieldMask.FromString("tx.ref");
+        List<byte> references = new();
+        await foreach (Submit.WatchMempoolResponse response in client.V1Beta.Submit.WatchMempoolAsync(predicate, mask, Token))
+        {
+            references.Add(Assert.Single(response.Tx.Ref));
+            if (references.Count == 2) break;
+        }
+        Assert.Equal(new byte[] { 1, 2 }, references);
+        Submit.WatchMempoolRequest request = TakeRequest<Submit.WatchMempoolRequest>();
+        Assert.Equal(predicate, request.Predicate);
+        Assert.Equal(mask, request.FieldMask);
+    }
+
+    /// <summary>Pages through history with exact tokens, supports no start, and rejects zero size immediately.</summary>
+    [Fact]
+    public async Task DumpAllHistoryAsync()
+    {
+        byte[] hash = [25, 26];
+        FieldMask mask = FieldMask.FromString("native_bytes");
+        List<byte> blocks = new();
+        await foreach (Sync.AnyChainBlock block in client.V1Beta.Sync.DumpAllHistoryAsync(new BlockPoint(1, hash), pageSize: 2, fieldMask: mask, cancellationToken: Token))
+        {
+            blocks.Add(Assert.Single(block.NativeBytes));
+        }
+        Assert.Equal(new byte[] { 1, 2, 3, 4, 5 }, blocks);
+        for (int page = 0; page < 3; page++)
+        {
+            Sync.DumpHistoryRequest request = TakeRequest<Sync.DumpHistoryRequest>();
+            Assert.Equal(mask, request.FieldMask);
+            Assert.Equal((ulong)(page * 2 + 1), request.StartToken.Slot);
+            if (page == 0) Assert.True(request.StartToken.Hash.Span.SequenceEqual(hash));
+            else Assert.True(request.StartToken.Hash.IsEmpty);
+            Assert.Equal(2U, request.MaxItems);
+        }
+        Assert.Empty(server.State.Requests);
+        await foreach (Sync.AnyChainBlock _ in client.V1Beta.Sync.DumpAllHistoryAsync(null, pageSize: 2, cancellationToken: Token)) break;
+        Sync.DumpHistoryRequest first = TakeRequest<Sync.DumpHistoryRequest>();
+        Assert.Null(first.StartToken);
+        Assert.Null(first.FieldMask);
+        Assert.Empty(server.State.Requests);
+        Assert.Throws<ArgumentOutOfRangeException>(() => client.V1Beta.Sync.DumpAllHistoryAsync(null, pageSize: 0, cancellationToken: Token));
+        Assert.Empty(server.State.Requests);
+    }
+
+    /// <summary>Preserves a typed predicate and intersection, or omits both when null.</summary>
+    [Fact]
+    public async Task WatchTxAsync()
+    {
+        byte[] hash = [27, 28];
+        Watch.TxPredicate predicate = new Watch.TxPredicate { Match = new() { Cardano = new() } };
+        FieldMask mask = FieldMask.FromString("apply.block.native_bytes");
+        List<byte> blocks = new();
+        await foreach (Watch.WatchTxResponse response in client.V1Beta.Watch.WatchTxAsync(predicate, new BlockPoint(5, hash), mask, Token))
+        {
+            Assert.Equal(Watch.WatchTxResponse.ActionOneofCase.Apply, response.ActionCase);
+            blocks.Add(Assert.Single(response.Apply.Block.NativeBytes));
+            if (blocks.Count == 2) break;
+        }
+        Assert.Equal(new byte[] { 1, 2 }, blocks);
+        Watch.WatchTxRequest request = TakeRequest<Watch.WatchTxRequest>();
+        Assert.Equal(predicate, request.Predicate);
+        Assert.Equal(mask, request.FieldMask);
+        Watch.BlockRef point = Assert.Single(request.Intersect);
+        Assert.Equal(5UL, point.Slot);
+        Assert.True(point.Hash.Span.SequenceEqual(hash));
+        await foreach (Watch.WatchTxResponse _ in client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: Token)) break;
+        request = TakeRequest<Watch.WatchTxRequest>();
+        Assert.Null(request.Predicate);
+        Assert.Null(request.FieldMask);
+        Assert.Empty(request.Intersect);
     }
 
     private T TakeRequest<T>() where T : class, IMessage

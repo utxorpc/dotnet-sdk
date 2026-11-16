@@ -20,7 +20,7 @@ internal sealed class FakeState
 {
     /// <summary>Gets the calls received by either version.</summary>
     public ConcurrentQueue<FakeCall> Calls { get; } = new();
-    /// <summary>Gets requests received by the fake query, submit and synchronization services.</summary>
+    /// <summary>Gets requests received by the fake services.</summary>
     public ConcurrentQueue<IMessage> Requests { get; } = new();
     /// <summary>Gets or sets whether the second search page waits until cancellation.</summary>
     public bool HoldSecondPage { get; set; }
@@ -68,7 +68,7 @@ internal sealed class FakeServer(WebApplication app, FakeState state, string url
     /// <summary>Gets the state shared by the fake service implementations.</summary>
     public FakeState State { get; } = state;
 
-    /// <summary>Starts the fake query, submission and synchronization services.</summary>
+    /// <summary>Starts the fake query, submission, synchronization and watch services.</summary>
     public static async Task<FakeServer> StartAsync()
     {
         WebApplicationBuilder builder = WebApplication.CreateSlimBuilder();
@@ -85,6 +85,8 @@ internal sealed class FakeServer(WebApplication app, FakeState state, string url
         app.MapGrpcService<FakeQueryV1Beta>();
         app.MapGrpcService<FakeSubmitV1Alpha>();
         app.MapGrpcService<FakeSubmitV1Beta>();
+        app.MapGrpcService<FakeWatchV1Alpha>();
+        app.MapGrpcService<FakeWatchV1Beta>();
         await app.StartAsync();
         IServer server = app.Services.GetRequiredService<IServer>();
         string url = server.Features.Get<IServerAddressesFeature>()!.Addresses.Single();

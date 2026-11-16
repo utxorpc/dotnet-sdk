@@ -5,14 +5,15 @@ namespace Utxorpc.Sdk.Internal;
 
 internal static class Paging
 {
-    internal static async IAsyncEnumerable<TItem> ReadAllPagesAsync<TClient, TState, TResponse, TItem>(
+    internal static async IAsyncEnumerable<TItem> ReadAllPagesAsync<TClient, TState, TToken, TResponse, TItem>(
         TClient client, TState state,
-        Func<TClient, TState, string?, CancellationToken, Task<TResponse>> fetchPage,
+        Func<TClient, TState, TToken?, CancellationToken, Task<TResponse>> fetchPage,
         Func<TResponse, RepeatedField<TItem>> items,
-        Func<TResponse, string?> nextToken,
+        Func<TResponse, TToken?> nextToken,
         [EnumeratorCancellation] CancellationToken cancellationToken)
+        where TToken : class
     {
-        string? token = null;
+        TToken? token = null;
         do
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -24,6 +25,6 @@ internal static class Paging
             }
             token = nextToken(response);
         }
-        while (!string.IsNullOrEmpty(token));
+        while (token is not null);
     }
 }

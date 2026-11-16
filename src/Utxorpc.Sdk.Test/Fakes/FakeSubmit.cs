@@ -37,6 +37,45 @@ internal sealed class FakeSubmitV1Alpha(FakeState state) : Alpha.SubmitService.S
             state.StreamEnded.TrySetResult();
         }
     }
+
+    /// <summary>Returns an empty Cardano evaluation report.</summary>
+    public override Task<Alpha.EvalTxResponse> EvalTx(Alpha.EvalTxRequest request, ServerCallContext context)
+    {
+        state.Enter(context);
+        state.Requests.Enqueue(request);
+        return Task.FromResult(new Alpha.EvalTxResponse { Report = new() { Cardano = new() } });
+    }
+
+    /// <summary>Returns one fixed mempool entry.</summary>
+    public override Task<Alpha.ReadMempoolResponse> ReadMempool(Alpha.ReadMempoolRequest request, ServerCallContext context)
+    {
+        state.Enter(context);
+        state.Requests.Enqueue(request);
+        return Task.FromResult(new Alpha.ReadMempoolResponse
+        {
+            Items = { new Alpha.TxInMempool { Ref = ByteString.CopyFrom(new byte[] { 9 }), Stage = Alpha.Stage.Mempool } }
+        });
+    }
+
+    /// <summary>Writes two mempool changes and waits for the caller to close the stream.</summary>
+    public override async Task WatchMempool(Alpha.WatchMempoolRequest request, IServerStreamWriter<Alpha.WatchMempoolResponse> responseStream, ServerCallContext context)
+    {
+        state.Enter(context);
+        state.Requests.Enqueue(request);
+        try
+        {
+            for (int i = 1; i <= 2; i++)
+            {
+                await responseStream.WriteAsync(new() { Tx = new() { Ref = ByteString.CopyFrom(new byte[] { (byte)i }) } });
+            }
+            await Task.Delay(Timeout.Infinite, context.CancellationToken);
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            state.StreamEnded.TrySetResult();
+        }
+    }
 }
 
 internal sealed class FakeSubmitV1Beta(FakeState state) : Beta.SubmitService.SubmitServiceBase
@@ -62,6 +101,45 @@ internal sealed class FakeSubmitV1Beta(FakeState state) : Beta.SubmitService.Sub
             foreach (Beta.Stage stage in new[] { Beta.Stage.Acknowledged, Beta.Stage.Mempool, Beta.Stage.Confirmed })
             {
                 await responseStream.WriteAsync(new() { Ref = request.Ref[0], Stage = stage });
+            }
+            await Task.Delay(Timeout.Infinite, context.CancellationToken);
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            state.StreamEnded.TrySetResult();
+        }
+    }
+
+    /// <summary>Returns an empty Cardano evaluation report.</summary>
+    public override Task<Beta.EvalTxResponse> EvalTx(Beta.EvalTxRequest request, ServerCallContext context)
+    {
+        state.Enter(context);
+        state.Requests.Enqueue(request);
+        return Task.FromResult(new Beta.EvalTxResponse { Report = new() { Cardano = new() } });
+    }
+
+    /// <summary>Returns one fixed mempool entry.</summary>
+    public override Task<Beta.ReadMempoolResponse> ReadMempool(Beta.ReadMempoolRequest request, ServerCallContext context)
+    {
+        state.Enter(context);
+        state.Requests.Enqueue(request);
+        return Task.FromResult(new Beta.ReadMempoolResponse
+        {
+            Items = { new Beta.TxInMempool { Ref = ByteString.CopyFrom(new byte[] { 9 }), Stage = Beta.Stage.Mempool } }
+        });
+    }
+
+    /// <summary>Writes two mempool changes and waits for the caller to close the stream.</summary>
+    public override async Task WatchMempool(Beta.WatchMempoolRequest request, IServerStreamWriter<Beta.WatchMempoolResponse> responseStream, ServerCallContext context)
+    {
+        state.Enter(context);
+        state.Requests.Enqueue(request);
+        try
+        {
+            for (int i = 1; i <= 2; i++)
+            {
+                await responseStream.WriteAsync(new() { Tx = new() { Ref = ByteString.CopyFrom(new byte[] { (byte)i }) } });
             }
             await Task.Delay(Timeout.Infinite, context.CancellationToken);
         }

@@ -106,27 +106,18 @@ public sealed class UtxorpcClientTests : IAsyncLifetime
         });
     }
 
-    /// <summary>Checks that the server's gRPC status is not wrapped or translated.</summary>
+    /// <summary>Checks server statuses, including Unimplemented for a missing RPC, arrive without translation.</summary>
     [Theory]
     [MemberData(nameof(Versions))]
     public async Task ServerStatusArrivesAsRpcException(Version version)
     {
-        server.State.FailWith = StatusCode.NotFound;
         using UtxorpcClient client = new(server.Url);
-        RpcException error = await Assert.ThrowsAsync<RpcException>(() => version.ReadTipSlot(client, null, default));
-        Assert.Equal(StatusCode.NotFound, error.StatusCode);
-    }
-
-    /// <summary>Checks the status for a service the server does not implement.</summary>
-    [Fact]
-    public async Task UnmappedServiceIsUnimplemented()
-    {
-        using UtxorpcClient client = new(server.Url);
-        RpcException error = await Assert.ThrowsAsync<RpcException>(async () =>
+        foreach (StatusCode status in new[] { StatusCode.NotFound, StatusCode.Unimplemented })
         {
-            await foreach (Utxorpc.V1Beta.Watch.WatchTxResponse _ in client.V1Beta.Watch.WatchTx(new()).ReadAllAsync()) { }
-        });
-        Assert.Equal(StatusCode.Unimplemented, error.StatusCode);
+            server.State.FailWith = status;
+            RpcException error = await Assert.ThrowsAsync<RpcException>(() => version.ReadTipSlot(client, null, default));
+            Assert.Equal(status, error.StatusCode);
+        }
     }
 
     /// <summary>Checks both generated client families use the same HTTP/2 connection.</summary>

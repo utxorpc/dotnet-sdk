@@ -66,7 +66,7 @@ catch (OperationCanceledException)
 _ = nameof(OtherCallsAsync);
 
 static async Task OtherCallsAsync(UtxorpcClient client, ReadOnlyMemory<byte> address, ReadOnlyMemory<byte> txHash,
-    ReadOnlyMemory<byte> signedTx, CancellationToken cancellationToken)
+    ReadOnlyMemory<byte> signedTx, ReadOnlyMemory<byte> datumHash, CancellationToken cancellationToken)
 {
     Beta.Query.ReadParamsResponse parameters = await client.V1Beta.Query.ReadParamsAsync(cancellationToken);
     Console.WriteLine(parameters.LedgerTip.Slot);
@@ -86,4 +86,23 @@ static async Task OtherCallsAsync(UtxorpcClient client, ReadOnlyMemory<byte> add
     }
     Beta.Query.ReadStateResponse state = await client.V1Beta.Query.ReadStateAsync(new Utxorpc.V1Beta.Cardano.StateQuery { }, cancellationToken);
     Console.WriteLine(state.LedgerTip.Slot);
+
+    // Read the chain's genesis configuration.
+    await client.V1Beta.Query.ReadGenesisAsync(cancellationToken: cancellationToken);
+    // Read the chain's era summaries.
+    await client.V1Beta.Query.ReadEraSummaryAsync(cancellationToken: cancellationToken);
+    // Read data by datum hash.
+    await client.V1Beta.Query.ReadDataAsync([datumHash], cancellationToken: cancellationToken);
+    // Evaluate a transaction without submitting it.
+    await client.V1Beta.Submit.EvalTxAsync(signedTx, cancellationToken);
+    // Read the current mempool.
+    await client.V1Beta.Submit.ReadMempoolAsync(cancellationToken);
+    // Watch mempool changes, stopping after the first.
+    await foreach (Beta.Submit.WatchMempoolResponse _ in client.V1Beta.Submit.WatchMempoolAsync(null, cancellationToken: cancellationToken)) break;
+    // Read every retained history page from the snapshot's tip.
+    await foreach (Beta.Sync.AnyChainBlock historicalBlock in client.V1Beta.Sync.DumpAllHistoryAsync(
+        new BlockPoint(parameters.LedgerTip.Slot, parameters.LedgerTip.Hash.Memory), pageSize: 10, cancellationToken: cancellationToken))
+        Console.WriteLine(historicalBlock.NativeBytes.Length);
+    // Watch chain transactions, stopping after the first.
+    await foreach (Beta.Watch.WatchTxResponse _ in client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: cancellationToken)) break;
 }
