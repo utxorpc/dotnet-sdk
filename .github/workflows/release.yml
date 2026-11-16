@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "10.0"
+          global-json-file: global.json
       - run: dotnet restore
       - run: dotnet build --no-restore --configuration Release
 
@@ -38,9 +38,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "10.0"
+          global-json-file: global.json
       - run: dotnet restore
-      # Utxorpc.Sdk.Test is a live-server suite; run only Category=Unit (see ci.yml).
+      # Live tests (Category=Live) need a server; CI runs the Unit category.
       - run: dotnet test --filter "Category=Unit"
 
   publish:
@@ -55,7 +55,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "10.0"
+          global-json-file: global.json
       - name: Pack
         run: >-
           dotnet pack src/Utxorpc.Sdk/Utxorpc.Sdk.csproj

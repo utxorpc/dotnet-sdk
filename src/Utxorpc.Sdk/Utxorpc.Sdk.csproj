@@ -1,11 +1,12 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>Utxorpc.Sdk</PackageId>
-    <Version>1.8.0-alpha</Version>
+    <Version>2.0.0-alpha</Version>
+    <UtxorpcSpecVersion Condition="'$(UtxorpcSpecVersion)' == ''">0.19.2-alpha</UtxorpcSpecVersion>
     <Authors>clark@txpipe.io</Authors>
     <Company>TxPipe LLC</Company>
     <PackageDescription>A gRPC interface for UTxO Blockchains</PackageDescription>
@@ -14,7 +15,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Utxorpc.Spec" Version="0.19.2-alpha" />
+    <PackageReference Include="Utxorpc.Spec" Version="$(UtxorpcSpecVersion)" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.85.0" />
+    <PackageReference Include="Google.Protobuf" Version="3.36.2" />
   </ItemGroup>
 
   <ItemGroup>
