@@ -36,8 +36,10 @@ public sealed class V1BetaShortMethodTests : IAsyncLifetime
     [Fact]
     public async Task ReadParamsAsync()
     {
-        Query.ReadParamsResponse response = await client.V1Beta.Query.ReadParamsAsync(Token);
+        FieldMask mask = FieldMask.FromString("native_bytes");
+        Query.ReadParamsResponse response = await client.V1Beta.Query.ReadParamsAsync(mask, Token);
         Assert.Equal(7UL, response.LedgerTip.Slot);
+        Assert.Equal(mask, TakeRequest<Query.ReadParamsRequest>().FieldMask);
     }
 
     /// <summary>Preserves output references and their order.</summary>
@@ -46,8 +48,10 @@ public sealed class V1BetaShortMethodTests : IAsyncLifetime
     {
         byte[] hashA = [1, 2];
         byte[] hashB = [3, 4];
-        Query.ReadUtxosResponse response = await client.V1Beta.Query.ReadUtxosAsync([new(hashA, 0), new(hashB, 3)], Token);
+        FieldMask mask = FieldMask.FromString("native_bytes");
+        Query.ReadUtxosResponse response = await client.V1Beta.Query.ReadUtxosAsync([new(hashA, 0), new(hashB, 3)], mask, Token);
         Query.ReadUtxosRequest request = TakeRequest<Query.ReadUtxosRequest>();
+        Assert.Equal(mask, request.FieldMask);
         Assert.Equal(2, request.Keys.Count);
         Assert.True(request.Keys[0].Hash.Span.SequenceEqual(hashA));
         Assert.Equal(0U, request.Keys[0].Index);
@@ -63,10 +67,11 @@ public sealed class V1BetaShortMethodTests : IAsyncLifetime
     public async Task SearchAllUtxosAsync()
     {
         Query.UtxoPredicate predicate = new Query.UtxoPredicate { Match = new() { Cardano = new() } };
+        FieldMask mask = FieldMask.FromString("native_bytes");
         foreach (int pageSize in new[] { 0, 2 })
         {
             List<byte> values = new();
-            await foreach (Query.AnyUtxoData item in client.V1Beta.Query.SearchAllUtxosAsync(predicate, pageSize, Token))
+            await foreach (Query.AnyUtxoData item in client.V1Beta.Query.SearchAllUtxosAsync(predicate, pageSize, mask, Token))
             {
                 values.Add(item.NativeBytes[0]);
             }
@@ -74,6 +79,7 @@ public sealed class V1BetaShortMethodTests : IAsyncLifetime
             for (int page = 0; page < 3; page++)
             {
                 Query.SearchUtxosRequest request = TakeRequest<Query.SearchUtxosRequest>();
+                Assert.Equal(mask, request.FieldMask);
                 Assert.Equal(predicate, request.Predicate);
                 Assert.Equal(page == 0 ? "" : $"p{page + 1}", request.StartToken);
                 Assert.Equal(page > 0, request.HasStartToken);
@@ -89,8 +95,10 @@ public sealed class V1BetaShortMethodTests : IAsyncLifetime
     public async Task SearchUtxosByAddressAsync()
     {
         byte[] address = [5, 6, 7];
-        await foreach (Query.AnyUtxoData _ in client.V1Beta.Query.SearchUtxosByAddressAsync(address, cancellationToken: Token)) break;
+        FieldMask mask = FieldMask.FromString("native_bytes");
+        await foreach (Query.AnyUtxoData _ in client.V1Beta.Query.SearchUtxosByAddressAsync(address, fieldMask: mask, cancellationToken: Token)) break;
         Query.SearchUtxosRequest request = TakeRequest<Query.SearchUtxosRequest>();
+        Assert.Equal(mask, request.FieldMask);
         Assert.True(request.Predicate.Match.Cardano.Address.ExactAddress.Span.SequenceEqual(address));
     }
 
@@ -98,14 +106,17 @@ public sealed class V1BetaShortMethodTests : IAsyncLifetime
     [Fact]
     public async Task CancellingWhileSecondPageIsHeldThrowsOperationCanceled()
     {
+        FieldMask mask = FieldMask.FromString("native_bytes");
         server.State.HoldSecondPage = true;
         await using IAsyncEnumerator<Query.AnyUtxoData> items = client.V1Beta.Query
-            .SearchAllUtxosAsync(new Query.UtxoPredicate(), cancellationToken: Token).GetAsyncEnumerator();
+            .SearchAllUtxosAsync(new Query.UtxoPredicate(), fieldMask: mask, cancellationToken: Token).GetAsyncEnumerator();
         Assert.True(await items.MoveNextAsync());
         Task<bool> pendingPage = items.MoveNextAsync().AsTask();
         while (server.State.Requests.Count < 2) await Task.Delay(10, Token);
         cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pendingPage);
+        Assert.Equal(mask, TakeRequest<Query.SearchUtxosRequest>().FieldMask);
+        Assert.Equal(mask, TakeRequest<Query.SearchUtxosRequest>().FieldMask);
     }
 
     /// <summary>Passes transaction hash bytes into the generated request.</summary>
@@ -113,7 +124,9 @@ public sealed class V1BetaShortMethodTests : IAsyncLifetime
     public async Task ReadTxAsync()
     {
         byte[] hash = [8, 9, 10];
-        Query.ReadTxResponse response = await client.V1Beta.Query.ReadTxAsync(hash, Token);
+        FieldMask mask = FieldMask.FromString("native_bytes");
+        Query.ReadTxResponse response = await client.V1Beta.Query.ReadTxAsync(hash, mask, Token);
+        Assert.Equal(mask, TakeRequest<Query.ReadTxRequest>().FieldMask);
         Assert.True(response.Tx.NativeBytes.Span.SequenceEqual(hash));
     }
 
@@ -170,13 +183,16 @@ public sealed class V1BetaShortMethodTests : IAsyncLifetime
     public async Task FetchBlockAsync()
     {
         byte[] hash = [15, 16];
+        FieldMask mask = FieldMask.FromString("native_bytes");
         server.State.BlockBytes = [];
-        await client.V1Beta.Sync.FetchBlockAsync(new BlockPoint(5, hash), Token);
-        await client.V1Beta.Sync.FetchBlockAsync(new BlockPoint(5, hash)).WaitAsync(Token);
-        await client.V1Beta.Sync.FetchBlockAsync(new BlockPoint(5, hash), cancellationToken: Token);
+        await client.V1Beta.Sync.FetchBlockAsync(new BlockPoint(5, hash), mask, Token);
+        await client.V1Beta.Sync.FetchBlockAsync(new BlockPoint(5, hash), mask).WaitAsync(Token);
+        await client.V1Beta.Sync.FetchBlockAsync(new BlockPoint(5, hash), fieldMask: mask, cancellationToken: Token);
         for (int i = 0; i < 3; i++)
         {
-            Sync.BlockRef point = Assert.Single(TakeRequest<Sync.FetchBlockRequest>().Ref);
+            Sync.FetchBlockRequest request = TakeRequest<Sync.FetchBlockRequest>();
+            Assert.Equal(mask, request.FieldMask);
+            Sync.BlockRef point = Assert.Single(request.Ref);
             Assert.Equal(5UL, point.Slot);
             Assert.True(point.Hash.Span.SequenceEqual(hash));
         }
@@ -188,14 +204,17 @@ public sealed class V1BetaShortMethodTests : IAsyncLifetime
     public async Task FollowTipAsync()
     {
         byte[] hash = [17, 18];
+        FieldMask mask = FieldMask.FromString("native_bytes");
         List<ulong> slots = new();
-        await foreach (Sync.FollowTipResponse response in client.V1Beta.Sync.FollowTipAsync(new BlockPoint(5, hash), Token))
+        await foreach (Sync.FollowTipResponse response in client.V1Beta.Sync.FollowTipAsync(new BlockPoint(5, hash), mask, Token))
         {
             slots.Add(response.Reset.Slot);
             if (slots.Count == 3) break;
         }
         Assert.Equal(new ulong[] { 1, 2, 3 }, slots);
-        Sync.BlockRef point = Assert.Single(TakeRequest<Sync.FollowTipRequest>().Intersect);
+        Sync.FollowTipRequest request = TakeRequest<Sync.FollowTipRequest>();
+        Assert.Equal(mask, request.FieldMask);
+        Sync.BlockRef point = Assert.Single(request.Intersect);
         Assert.Equal(5UL, point.Slot);
         Assert.True(point.Hash.Span.SequenceEqual(hash));
     }
@@ -204,17 +223,23 @@ public sealed class V1BetaShortMethodTests : IAsyncLifetime
     [Fact]
     public async Task FollowTipAsyncWithoutPoint()
     {
-        await foreach (Sync.FollowTipResponse _ in client.V1Beta.Sync.FollowTipAsync(null, Token)) break;
-        Assert.Empty(TakeRequest<Sync.FollowTipRequest>().Intersect);
+        FieldMask mask = FieldMask.FromString("native_bytes");
+        await foreach (Sync.FollowTipResponse _ in client.V1Beta.Sync.FollowTipAsync(null, mask, Token)) break;
+        Sync.FollowTipRequest request = TakeRequest<Sync.FollowTipRequest>();
+        Assert.Equal(mask, request.FieldMask);
+        Assert.Empty(request.Intersect);
     }
 
     /// <summary>Uses the typed Cardano state query overload.</summary>
     [Fact]
     public async Task ReadStateAsync()
     {
-        Query.ReadStateResponse response = await client.V1Beta.Query.ReadStateAsync(new Utxorpc.V1Beta.Cardano.StateQuery(), Token);
+        FieldMask mask = FieldMask.FromString("native_bytes");
+        Query.ReadStateResponse response = await client.V1Beta.Query.ReadStateAsync(new Utxorpc.V1Beta.Cardano.StateQuery(), mask, Token);
         Assert.Equal(9UL, response.LedgerTip.Slot);
-        Assert.NotNull(TakeRequest<Query.ReadStateRequest>().Query.Cardano);
+        Query.ReadStateRequest request = TakeRequest<Query.ReadStateRequest>();
+        Assert.Equal(mask, request.FieldMask);
+        Assert.NotNull(request.Query.Cardano);
     }
 
     /// <summary>Reads the fake genesis configuration with and without a field mask.</summary>
@@ -353,6 +378,41 @@ public sealed class V1BetaShortMethodTests : IAsyncLifetime
         Assert.Null(request.Predicate);
         Assert.Null(request.FieldMask);
         Assert.Empty(request.Intersect);
+    }
+
+    /// <summary>Passes a non-null mask to every masked request type.</summary>
+    [Fact]
+    public async Task FieldMaskReachesEveryRequest()
+    {
+        FieldMask mask = FieldMask.FromString("native_bytes");
+        byte[] hash = [29, 30];
+        server.State.BlockBytes = [];
+        await client.V1Beta.Query.ReadParamsAsync(mask, Token);
+        await client.V1Beta.Query.ReadUtxosAsync([new(hash, 0)], mask, Token);
+        await foreach (Query.AnyUtxoData _ in client.V1Beta.Query.SearchAllUtxosAsync(new Query.UtxoPredicate(), fieldMask: mask, cancellationToken: Token)) break;
+        await foreach (Query.AnyUtxoData _ in client.V1Beta.Query.SearchUtxosByAddressAsync(hash, fieldMask: mask, cancellationToken: Token)) break;
+        await client.V1Beta.Query.ReadTxAsync(hash, mask, Token);
+        await client.V1Beta.Sync.FetchBlockAsync(new BlockPoint(1, hash), mask, Token);
+        await foreach (Sync.FollowTipResponse _ in client.V1Beta.Sync.FollowTipAsync(null, mask, Token)) break;
+        await client.V1Beta.Query.ReadGenesisAsync(mask, Token);
+        await client.V1Beta.Query.ReadEraSummaryAsync(mask, Token);
+        await client.V1Beta.Query.ReadDataAsync([hash], mask, Token);
+        await foreach (Submit.WatchMempoolResponse _ in client.V1Beta.Submit.WatchMempoolAsync(null, mask, Token)) break;
+        await foreach (Sync.AnyChainBlock _ in client.V1Beta.Sync.DumpAllHistoryAsync(null, 2, mask, Token)) break;
+        await foreach (Watch.WatchTxResponse _ in client.V1Beta.Watch.WatchTxAsync(null, null, mask, Token)) break;
+        await client.V1Beta.Query.ReadStateAsync(new Utxorpc.V1Beta.Cardano.StateQuery(), mask, Token);
+        HashSet<System.Type> expected = [typeof(Query.ReadParamsRequest), typeof(Query.ReadUtxosRequest), typeof(Query.SearchUtxosRequest),
+            typeof(Query.ReadTxRequest), typeof(Sync.FetchBlockRequest), typeof(Sync.FollowTipRequest), typeof(Query.ReadGenesisRequest),
+            typeof(Query.ReadEraSummaryRequest), typeof(Query.ReadDataRequest), typeof(Submit.WatchMempoolRequest),
+            typeof(Sync.DumpHistoryRequest), typeof(Watch.WatchTxRequest), typeof(Query.ReadStateRequest)];
+        HashSet<System.Type> seen = new();
+        foreach (IMessage request in server.State.Requests)
+        {
+            Assert.Equal(mask, request.Descriptor.FindFieldByName("field_mask").Accessor.GetValue(request));
+            seen.Add(request.GetType());
+        }
+        Assert.True(expected.SetEquals(seen));
+        Assert.Equal(14, server.State.Requests.Count);
     }
 
     private T TakeRequest<T>() where T : class, IMessage

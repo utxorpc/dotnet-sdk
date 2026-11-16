@@ -13,20 +13,20 @@ public static class V1BetaSyncExtensions
         client.ReadTipAsync(new ReadTipRequest(), cancellationToken: cancellationToken).ResponseAsync;
 
     /// <summary>Fetches a block without copying hash memory; it must not change until the call returns.</summary>
-    /// <remarks>Write the point as <c>new BlockPoint(slot, hash)</c>; for <c>FetchBlockAsync</c>, a bare <c>new(...)</c> picks the generated call unless the token is passed positionally.</remarks>
-    public static Task<FetchBlockResponse> FetchBlockAsync(this SyncService.SyncServiceClient client, BlockPoint point, CancellationToken cancellationToken = default)
+    /// <remarks>Write the point as <c>new BlockPoint(slot, hash)</c>; for <c>FetchBlockAsync</c>, a bare <c>new(...)</c> picks the generated call.</remarks>
+    public static Task<FetchBlockResponse> FetchBlockAsync(this SyncService.SyncServiceClient client, BlockPoint point, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
     {
-        FetchBlockRequest request = new();
+        FetchBlockRequest request = new() { FieldMask = fieldMask };
         request.Ref.Capacity = 1;
         request.Ref.Add(new BlockRef { Slot = point.Slot, Hash = UnsafeByteOperations.UnsafeWrap(point.Hash) });
         return client.FetchBlockAsync(request, cancellationToken: cancellationToken).ResponseAsync;
     }
 
     /// <summary>Follows the tip; an optional point's hash memory must not change until enumeration ends.</summary>
-    /// <remarks>Write the point as <c>new BlockPoint(slot, hash)</c>; <c>null</c> follows from the server's current tip.</remarks>
-    public static IAsyncEnumerable<FollowTipResponse> FollowTipAsync(this SyncService.SyncServiceClient client, BlockPoint? from, CancellationToken cancellationToken = default)
+    /// <remarks>Use <c>new BlockPoint(slot, hash)</c> for a point, or <c>null</c> for the server's current tip. Name <c>cancellationToken</c> to omit the mask.</remarks>
+    public static IAsyncEnumerable<FollowTipResponse> FollowTipAsync(this SyncService.SyncServiceClient client, BlockPoint? from, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
     {
-        FollowTipRequest request = new();
+        FollowTipRequest request = new() { FieldMask = fieldMask };
         if (from is BlockPoint point)
         {
             request.Intersect.Capacity = 1;
