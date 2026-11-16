@@ -18,6 +18,12 @@ public sealed class LiveServer : IDisposable
     /// <summary>Reads the live endpoint and optional headers without disclosing header values.</summary>
     public LiveServer()
     {
+        IsDingo = Environment.GetEnvironmentVariable("UTXORPC_SERVER") switch
+        {
+            null or "dolos" => false,
+            "dingo" => true,
+            _ => throw new InvalidOperationException("UTXORPC_SERVER must be dolos or dingo.")
+        };
         string? url = Environment.GetEnvironmentVariable("UTXORPC_URL");
         if (string.IsNullOrWhiteSpace(url))
             throw new InvalidOperationException("Set UTXORPC_URL and, if needed, UTXORPC_HEADERS to run live tests.");
@@ -40,6 +46,9 @@ public sealed class LiveServer : IDisposable
         sample = new(() => DiscoverAsync(CancellationToken.None));
     }
 
+    /// <summary>Gets whether the selected live server is Dingo rather than Dolos.</summary>
+    public bool IsDingo { get; }
+
     /// <summary>Gets the shared client for both protocol versions.</summary>
     public UtxorpcClient Client { get; }
 
@@ -57,6 +66,7 @@ public sealed class LiveServer : IDisposable
         await foreach (Beta.Watch.WatchTxResponse item in Client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: bound.Token))
         {
             if (item.Apply?.Cardano is not { } tx) continue;
+            if (IsDingo) await ReadIndexedAsync(tx.Hash, bound.Token);
             found = await FindOutputAsync(tx, bound.Token);
             if (found is not null) return found;
         }
@@ -73,12 +83,34 @@ public sealed class LiveServer : IDisposable
         bound.CancelAfter(TimeSpan.FromSeconds(180));
         await foreach (Beta.Watch.WatchTxResponse item in Client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: bound.Token))
         {
-            if (item.Apply?.Cardano is not { } tx || await FindOutputAsync(tx, bound.Token) is null) continue;
-            Beta.Query.ReadTxResponse read = await Client.V1Beta.Query.ReadTxAsync(tx.Hash.Memory, cancellationToken: bound.Token);
+            if (item.Apply?.Cardano is not { } tx) continue;
+            Beta.Query.ReadTxResponse? indexed = IsDingo ? await ReadIndexedAsync(tx.Hash, bound.Token) : null;
+            if (await FindOutputAsync(tx, bound.Token) is null) continue;
+            Beta.Query.ReadTxResponse read = indexed ?? await Client.V1Beta.Query.ReadTxAsync(tx.Hash.Memory, cancellationToken: bound.Token);
             if (read.Tx.NativeBytes.IsEmpty) throw new InvalidOperationException("ReadTx returned no native transaction bytes.");
             return new(tx, read.Tx.NativeBytes);
         }
         throw new InvalidOperationException("WatchTx ended without a usable transaction within 180 seconds.");
+    }
+
+    internal async Task<Beta.Query.ReadTxResponse> ReadIndexedAsync(ByteString hash, CancellationToken cancellationToken)
+    {
+        // Dingo publishes WatchTx before its query index is visible (observed around 2 seconds).
+        using CancellationTokenSource bound = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        bound.CancelAfter(TimeSpan.FromSeconds(15));
+        try
+        {
+            while (true)
+            {
+                try { return await Client.V1Beta.Query.ReadTxAsync(hash.Memory, cancellationToken: bound.Token); }
+                catch (RpcException error) when (error.StatusCode == StatusCode.NotFound) { }
+                await Task.Delay(TimeSpan.FromMilliseconds(500), bound.Token);
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new InvalidOperationException("Dingo WatchTx transaction was not query-indexed within 15 seconds.");
+        }
     }
 
     private async Task<LiveOutput?> FindOutputAsync(Beta.Cardano.Tx tx, CancellationToken cancellationToken, ByteString? excludedAddress = null)

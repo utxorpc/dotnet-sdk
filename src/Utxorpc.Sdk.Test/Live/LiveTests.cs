@@ -48,7 +48,12 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
         void CheckMask(ByteString bytes, IMessage? parsed)
         {
             Assert.False(bytes.IsEmpty);
-            Assert.Null(parsed);
+            if (server.IsDingo && parsed is not null) output.WriteLine("Dingo field mask not honoured.");
+            else
+            {
+                Assert.Null(parsed);
+                if (server.IsDingo) output.WriteLine("Dingo field mask honoured.");
+            }
         }
     }
 
@@ -73,13 +78,32 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
         Assert.Equal(second.NextToken.ToByteString(), alphaSecond.NextToken.ToByteString());
         Assert.NotNull(second.NextToken);
         Assert.True(second.NextToken.Slot > first.NextToken.Slot);
-        Assert.DoesNotContain(second.Block, block => first.Block.Any(previous => previous.Cardano.Header.Hash == block.Cardano.Header.Hash));
+        if (server.IsDingo)
+        {
+            Assert.All(first.Block.Concat(second.Block), block => Assert.False(block.NativeBytes.IsEmpty));
+            Assert.Equal(4, first.Block.Concat(second.Block).Select(block => block.NativeBytes).Distinct().Count());
+            NoteHeaders("v1alpha", alphaFirst.Block.Concat(alphaSecond.Block).Select(block => block.Cardano?.Header is not null));
+            NoteHeaders("v1beta", first.Block.Concat(second.Block).Select(block => block.Cardano?.Header is not null));
+        }
+        else Assert.DoesNotContain(second.Block, block => first.Block.Any(previous => previous.Cardano.Header.Hash == block.Cardano.Header.Hash));
         ByteString[] expected = first.Block.Concat(second.Block).Select(block => block.NativeBytes).ToArray();
         BlockPoint point = new(start.Slot, start.Hash.Memory);
         Assert.Equal(expected, (await TakeAsync(Client.V1Alpha.Sync.DumpAllHistoryAsync(point, 2, cancellationToken: ct), 4)).Select(block => block.NativeBytes));
         Assert.Equal(expected, (await TakeAsync(Client.V1Beta.Sync.DumpAllHistoryAsync(point, 2, cancellationToken: ct), 4)).Select(block => block.NativeBytes));
+        void NoteHeaders(string version, IEnumerable<bool> headers) => output.WriteLine($"Dingo {version} history headers: " +
+            string.Join(", ", headers.Select((present, index) => $"page {index / 2 + 1} block {index % 2 + 1}={(present ? "present" : "missing")}")));
         async Task<Beta.Sync.BlockRef> FindStartAsync()
         {
+            if (server.IsDingo)
+            {
+                Beta.Sync.DumpHistoryResponse oldest = await Client.V1Beta.Sync.DumpHistoryAsync(new() { MaxItems = 1 }, cancellationToken: ct);
+                Beta.Sync.AnyChainBlock block = Assert.Single(oldest.Block);
+                // Dingo omits parsed headers on the first Byron-era block and all four sampled post-start blocks, on both versions.
+                Assert.NotNull(oldest.NextToken);
+                Assert.Equal(32, oldest.NextToken.Hash.Length);
+                output.WriteLine($"Dingo first Byron-era block: parsed Cardano.Header {(block.Cardano?.Header is null ? "missing" : "present")}; start point from the complete next token. Dingo starts after it.");
+                return oldest.NextToken;
+            }
             Beta.Sync.BlockRef tip = (await Client.V1Beta.Sync.ReadTipAsync(ct)).Tip;
             Beta.Sync.DumpHistoryResponse page;
             try
@@ -242,17 +266,22 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
         async Task CheckAsync<T>(Func<CancellationToken, IAsyncEnumerable<T>> open, Func<T, ByteString> reference)
         {
             using CancellationTokenSource cancel = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+            if (server.IsDingo) cancel.CancelAfter(TimeSpan.FromSeconds(5));
             int seen = 0;
             await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
             {
                 await foreach (T item in open(cancel.Token))
                 {
-                    Assert.Equal(unknown, reference(item).ToByteArray());
                     seen++;
-                    cancel.Cancel();
+                    if (!server.IsDingo)
+                    {
+                        Assert.Equal(unknown, reference(item).ToByteArray());
+                        cancel.Cancel();
+                    }
                 }
             });
-            Assert.Equal(1, seen);
+            Assert.Equal(server.IsDingo ? 0 : 1, seen);
+            if (server.IsDingo) output.WriteLine("Dingo WaitForTx: no message for an unknown reference before cancellation after 5 seconds.");
         }
     }
 
@@ -273,10 +302,26 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
     public async Task ReadMempoolAsync()
     {
         using CancellationTokenSource timeout = Timeout();
+        if (server.IsDingo)
+        {
+            Alpha.Submit.ReadMempoolResponse alphaSnapshot = await Client.V1Alpha.Submit.ReadMempoolAsync(timeout.Token);
+            Beta.Submit.ReadMempoolResponse betaSnapshot = await Client.V1Beta.Submit.ReadMempoolAsync(timeout.Token);
+            CheckSnapshot(alphaSnapshot.Items.Select(item => (item.NativeBytes, item.Stage == Alpha.Submit.Stage.Mempool, item.Ref)));
+            CheckSnapshot(betaSnapshot.Items.Select(item => (item.NativeBytes, item.Stage == Beta.Submit.Stage.Mempool, item.Ref)));
+            output.WriteLine($"Dingo ReadMempool: v1alpha={alphaSnapshot.Items.Count} items, v1beta={betaSnapshot.Items.Count} items.");
+            return;
+        }
         StatusCode? alpha = await OutcomeAsync(() => Client.V1Alpha.Submit.ReadMempoolAsync(timeout.Token));
         StatusCode? beta = await OutcomeAsync(() => Client.V1Beta.Submit.ReadMempoolAsync(timeout.Token));
         Assert.Equal(alpha, beta);
         output.WriteLine($"ReadMempool: v1alpha={alpha?.ToString() ?? "snapshot"}, v1beta={beta?.ToString() ?? "snapshot"}.");
+        void CheckSnapshot(IEnumerable<(ByteString Bytes, bool Mempool, ByteString Ref)> items) => Assert.All(items, item =>
+        {
+            Assert.False(item.Bytes.IsEmpty);
+            Assert.True(item.Mempool);
+            if (item.Ref.IsEmpty) output.WriteLine("Dingo ReadMempool leaves ref unset.");
+            else Assert.Equal(32, item.Ref.Length);
+        });
     }
 
     private static byte[] ConfigurationBytes(IMessage message)
@@ -295,7 +340,7 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
         catch (RpcException error) { return error.StatusCode; }
     }
 
-    private static async Task<List<T>> TakeAsync<T>(IAsyncEnumerable<T> source, int count)
+    internal static async Task<List<T>> TakeAsync<T>(IAsyncEnumerable<T> source, int count)
     {
         List<T> items = [];
         await foreach (T item in source)
