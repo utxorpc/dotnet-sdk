@@ -35,6 +35,7 @@ internal sealed class FakeSyncV1Alpha(FakeState state) : Alpha.Sync.SyncService.
             for (int i = 1; i <= state.StreamMessages; i++)
             {
                 await responseStream.WriteAsync(new() { Reset = new() { Slot = (ulong)i } });
+                if (state.FailAfterFirstMessage) throw new RpcException(new Status(StatusCode.Unavailable, "fake"));
             }
             await Task.Delay(Timeout.Infinite, context.CancellationToken);
         }
@@ -91,6 +92,7 @@ internal sealed class FakeSyncV1Beta(FakeState state) : Beta.Sync.SyncService.Sy
             for (int i = 1; i <= state.StreamMessages; i++)
             {
                 await responseStream.WriteAsync(new() { Reset = new() { Slot = (ulong)i } });
+                if (state.FailAfterFirstMessage) throw new RpcException(new Status(StatusCode.Unavailable, "fake"));
             }
             await Task.Delay(Timeout.Infinite, context.CancellationToken);
         }

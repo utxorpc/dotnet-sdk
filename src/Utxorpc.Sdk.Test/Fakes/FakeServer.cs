@@ -18,6 +18,7 @@ internal sealed record FakeCall(string Method, IReadOnlyList<KeyValuePair<string
 
 internal sealed class FakeState
 {
+    private int callCount;
     /// <summary>Gets the calls received by either version.</summary>
     public ConcurrentQueue<FakeCall> Calls { get; } = new();
     /// <summary>Gets requests received by the fake services.</summary>
@@ -26,6 +27,10 @@ internal sealed class FakeState
     public bool HoldSecondPage { get; set; }
     /// <summary>Gets or sets a status returned instead of an answer.</summary>
     public StatusCode? FailWith { get; set; }
+    /// <summary>Gets or sets how many initial calls fail, or null for every call.</summary>
+    public int? FailFirstCalls { get; set; }
+    /// <summary>Gets or sets whether FollowTip fails after writing its first message.</summary>
+    public bool FailAfterFirstMessage { get; set; }
     /// <summary>Gets or sets the number of responses before a stream waits for cancellation.</summary>
     public int StreamMessages { get; set; } = 3;
     /// <summary>Gets or sets the serialized block returned by FetchBlock.</summary>
@@ -53,8 +58,9 @@ internal sealed class FakeState
     {
         KeyValuePair<string, string>[] headers = context.RequestHeaders
             .Select(header => new KeyValuePair<string, string>(header.Key, header.Value)).ToArray();
+        int call = Interlocked.Increment(ref callCount);
         Calls.Enqueue(new FakeCall(context.Method, headers, context.GetHttpContext().Connection.Id));
-        if (FailWith is not null)
+        if (FailWith is not null && (FailFirstCalls is null || call <= FailFirstCalls))
         {
             throw new RpcException(new Status(FailWith.Value, "fake"));
         }

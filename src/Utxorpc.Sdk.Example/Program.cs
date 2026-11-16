@@ -1,4 +1,5 @@
 using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.DependencyInjection;
 using Utxorpc.Sdk;
 using Alpha = Utxorpc.V1Alpha;
 using Beta = Utxorpc.V1Beta;
@@ -66,7 +67,7 @@ catch (OperationCanceledException)
 // These additional examples are compiled but not called; no transaction is submitted by default.
 _ = nameof(OtherCallsAsync);
 
-static async Task OtherCallsAsync(UtxorpcClient client, ReadOnlyMemory<byte> address, ReadOnlyMemory<byte> txHash,
+static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient client, ReadOnlyMemory<byte> address, ReadOnlyMemory<byte> txHash,
     ReadOnlyMemory<byte> signedTx, ReadOnlyMemory<byte> datumHash, ReadOnlyMemory<byte> paymentKeyHash,
     ReadOnlyMemory<byte> policyId, CancellationToken cancellationToken)
 {
@@ -96,6 +97,19 @@ static async Task OtherCallsAsync(UtxorpcClient client, ReadOnlyMemory<byte> add
     }
     Beta.Query.ReadStateResponse state = await client.V1Beta.Query.ReadStateAsync(new Utxorpc.V1Beta.Cardano.StateQuery { }, cancellationToken: cancellationToken);
     Console.WriteLine(state.LedgerTip.Slot);
+
+    // Configure a client that creates its own connection.
+    UtxorpcClientOptions options = new() { Url = url, MaxAttempts = 3, KeepAliveInterval = TimeSpan.FromSeconds(60) };
+    if (apiKey is not null) options.Headers["dmtr-api-key"] = apiKey;
+    using UtxorpcClient configured = new(options);
+
+    // Share clients through dependency injection, with an optional name.
+    ServiceCollection services = new();
+    services.AddUtxorpcClient(o => o.Url = url);
+    services.AddUtxorpcClient("preprod", o => o.Url = url);
+    using ServiceProvider provider = services.BuildServiceProvider();
+    UtxorpcClient shared = provider.GetRequiredService<UtxorpcClient>();
+    UtxorpcClient preprod = provider.GetRequiredKeyedService<UtxorpcClient>("preprod");
 
     // Read the chain's genesis configuration.
     await client.V1Beta.Query.ReadGenesisAsync(cancellationToken: cancellationToken);
