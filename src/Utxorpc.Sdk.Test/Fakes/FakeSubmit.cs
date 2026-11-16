@@ -25,7 +25,7 @@ internal sealed class FakeSubmitV1Alpha(FakeState state) : Alpha.SubmitService.S
         state.Requests.Enqueue(request);
         try
         {
-            foreach (Alpha.Stage stage in new[] { Alpha.Stage.Acknowledged, Alpha.Stage.Mempool, Alpha.Stage.Confirmed })
+            foreach (Alpha.Stage stage in new[] { Alpha.Stage.Acknowledged, Alpha.Stage.Mempool, Alpha.Stage.Confirmed }.Take(state.StreamMessages))
             {
                 await responseStream.WriteAsync(new() { Ref = request.Ref[0], Stage = stage });
             }
@@ -98,7 +98,7 @@ internal sealed class FakeSubmitV1Beta(FakeState state) : Beta.SubmitService.Sub
         state.Requests.Enqueue(request);
         try
         {
-            foreach (Beta.Stage stage in new[] { Beta.Stage.Acknowledged, Beta.Stage.Mempool, Beta.Stage.Confirmed })
+            foreach (Beta.Stage stage in new[] { Beta.Stage.Acknowledged, Beta.Stage.Mempool, Beta.Stage.Confirmed }.Take(state.StreamMessages))
             {
                 await responseStream.WriteAsync(new() { Ref = request.Ref[0], Stage = stage });
             }

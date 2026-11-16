@@ -7,8 +7,10 @@ namespace Utxorpc.Sdk;
 
 /// <summary>Offers both versions of the generated clients on one channel.</summary>
 /// <remarks>
-/// For SDK-created channels, the default policy may retry calls that fail with Unavailable, even if
-/// the server already ran them. It never retries SubmitTx or a stream after its first message.
+/// For SDK-created channels, the default policy may retry unary calls that fail with Unavailable,
+/// even if the server already ran them. It never retries SubmitTx or a server stream.
+/// Stream failures are reported to the caller, who handles reconnecting and, where supported,
+/// resuming from a saved point. FollowTip and WatchTx support intersection points.
 /// Check with WaitForTxAsync or ReadTxAsync before resubmitting a transaction.
 /// A caller-supplied channel or a configuration hook that replaces ServiceConfig uses the caller's
 /// retry behavior; the caller is then responsible for SubmitTx retries.
@@ -107,7 +109,15 @@ public sealed class UtxorpcClient : IDisposable
                 Names =
                 {
                     new MethodName { Service = Utxorpc.V1Alpha.Submit.SubmitService.Descriptor.FullName, Method = nameof(Utxorpc.V1Alpha.Submit.SubmitService.SubmitServiceBase.SubmitTx) },
-                    new MethodName { Service = Utxorpc.V1Beta.Submit.SubmitService.Descriptor.FullName, Method = nameof(Utxorpc.V1Beta.Submit.SubmitService.SubmitServiceBase.SubmitTx) }
+                    new MethodName { Service = Utxorpc.V1Beta.Submit.SubmitService.Descriptor.FullName, Method = nameof(Utxorpc.V1Beta.Submit.SubmitService.SubmitServiceBase.SubmitTx) },
+                    new MethodName { Service = Utxorpc.V1Alpha.Submit.SubmitService.Descriptor.FullName, Method = nameof(Utxorpc.V1Alpha.Submit.SubmitService.SubmitServiceBase.WaitForTx) },
+                    new MethodName { Service = Utxorpc.V1Alpha.Submit.SubmitService.Descriptor.FullName, Method = nameof(Utxorpc.V1Alpha.Submit.SubmitService.SubmitServiceBase.WatchMempool) },
+                    new MethodName { Service = Utxorpc.V1Alpha.Sync.SyncService.Descriptor.FullName, Method = nameof(Utxorpc.V1Alpha.Sync.SyncService.SyncServiceBase.FollowTip) },
+                    new MethodName { Service = Utxorpc.V1Alpha.Watch.WatchService.Descriptor.FullName, Method = nameof(Utxorpc.V1Alpha.Watch.WatchService.WatchServiceBase.WatchTx) },
+                    new MethodName { Service = Utxorpc.V1Beta.Submit.SubmitService.Descriptor.FullName, Method = nameof(Utxorpc.V1Beta.Submit.SubmitService.SubmitServiceBase.WaitForTx) },
+                    new MethodName { Service = Utxorpc.V1Beta.Submit.SubmitService.Descriptor.FullName, Method = nameof(Utxorpc.V1Beta.Submit.SubmitService.SubmitServiceBase.WatchMempool) },
+                    new MethodName { Service = Utxorpc.V1Beta.Sync.SyncService.Descriptor.FullName, Method = nameof(Utxorpc.V1Beta.Sync.SyncService.SyncServiceBase.FollowTip) },
+                    new MethodName { Service = Utxorpc.V1Beta.Watch.WatchService.Descriptor.FullName, Method = nameof(Utxorpc.V1Beta.Watch.WatchService.WatchServiceBase.WatchTx) }
                 }
             }
         }

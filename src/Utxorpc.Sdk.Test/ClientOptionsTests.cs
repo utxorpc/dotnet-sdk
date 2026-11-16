@@ -1,7 +1,9 @@
+using System.Reflection;
 using System.Buffers.Binary;
 using System.Net;
 using System.Net.Http.Headers;
 using Google.Protobuf;
+using ServiceDescriptor = Google.Protobuf.Reflection.ServiceDescriptor;
 using Grpc.Core;
 using Grpc.Net.Client;
 using Grpc.Net.Client.Configuration;
@@ -98,6 +100,52 @@ public sealed class ClientOptionsTests : ClientTestBase
         Assert.True(server.State.StreamEnded.Task.IsCompletedSuccessfully);
     }
 
+    /// <summary>Cancels an uncommitted default stream without changing its exception contract.</summary>
+    [Theory]
+    [InlineData("short")]
+    [InlineData("raw")]
+    public async Task SilentStreamCancellationThrowsOperationCanceled(string path)
+    {
+        server.State.StreamMessages = 0;
+        using UtxorpcClient client = new(server.Url);
+        using CancellationTokenSource cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
+        cancel.CancelAfter(TimeSpan.FromMilliseconds(200));
+        byte[] hash = new byte[32];
+        int messages = 0;
+        Exception error = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            if (path == "short")
+            {
+                await foreach (Beta.Submit.WaitForTxResponse _ in client.V1Beta.Submit.WaitForTxAsync(hash, cancel.Token)) messages++;
+            }
+            else
+            {
+                using AsyncServerStreamingCall<Beta.Submit.WaitForTxResponse> call = client.V1Beta.Submit.WaitForTx(
+                    new() { Ref = { ByteString.CopyFrom(hash) } }, cancellationToken: cancel.Token);
+                while (await call.ResponseStream.MoveNext(cancel.Token)) messages++;
+            }
+        });
+        Assert.IsNotType<RpcException>(error);
+        Assert.Equal(0, messages);
+        await server.State.WaitForStreamEndAsync("v1beta");
+        AssertCalls("/utxorpc.v1beta.submit.SubmitService/WaitForTx", 1);
+    }
+
+    /// <summary>Surfaces an unavailable stream before any response without another attempt.</summary>
+    [Fact]
+    public async Task StreamIsNotRetriedBeforeItsFirstMessage()
+    {
+        server.State.FailWith = StatusCode.Unavailable;
+        server.State.FailFirstCalls = 1;
+        using UtxorpcClient client = new(server.Url);
+        RpcException error = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            await foreach (Beta.Sync.FollowTipResponse _ in client.V1Beta.Sync.FollowTipAsync(null, cancellationToken: cancellation.Token)) { }
+        });
+        Assert.Equal(StatusCode.Unavailable, error.StatusCode);
+        AssertCalls("/utxorpc.v1beta.sync.SyncService/FollowTip", 1);
+    }
+
     /// <summary>Exposes the same defaults to both hooks and permits retry and pings to be disabled.</summary>
     [Fact]
     public async Task ConfigureChannelSeesTheDefaults()
@@ -125,10 +173,17 @@ public sealed class ClientOptionsTests : ClientTestBase
             Assert.Equal(1.5, retry.BackoffMultiplier);
             Assert.Equal(StatusCode.Unavailable, Assert.Single(retry.RetryableStatusCodes));
             Assert.Null(config.MethodConfigs[1].RetryPolicy);
-            Assert.Equal(2, config.MethodConfigs[1].Names.Count);
-            Assert.Collection(config.MethodConfigs[1].Names,
-                name => { Assert.Equal("utxorpc.v1alpha.submit.SubmitService", name.Service); Assert.Equal("SubmitTx", name.Method); },
-                name => { Assert.Equal("utxorpc.v1beta.submit.SubmitService", name.Service); Assert.Equal("SubmitTx", name.Method); });
+            Assert.Equal(10, config.MethodConfigs[1].Names.Count);
+            (string? Service, string? Method)[] expected = typeof(Beta.Sync.SyncService).Assembly.GetTypes()
+                .Select(type => type.GetProperty("Descriptor", BindingFlags.Public | BindingFlags.Static))
+                .Where(property => property?.PropertyType == typeof(ServiceDescriptor))
+                .Select(property => (ServiceDescriptor)property!.GetValue(null)!)
+                .SelectMany(service => service.Methods.Where(method => method.IsServerStreaming
+                    || method.Name == nameof(Beta.Submit.SubmitService.SubmitServiceBase.SubmitTx)))
+                .Select(method => ((string?)method.Service.FullName, (string?)method.Name))
+                .OrderBy(name => name.Item1, StringComparer.Ordinal).ThenBy(name => name.Item2, StringComparer.Ordinal).ToArray();
+            Assert.Equal(expected, config.MethodConfigs[1].Names.Select(name => (name.Service, name.Method))
+                .OrderBy(name => name.Service, StringComparer.Ordinal).ThenBy(name => name.Method, StringComparer.Ordinal));
         }
         using UtxorpcClient fromOptions = new(new UtxorpcClientOptions { Url = server.Url, ConfigureChannel = CheckDefaults });
         using UtxorpcClient fromUrl = new(server.Url, configureChannel: CheckDefaults);

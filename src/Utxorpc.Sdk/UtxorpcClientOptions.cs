@@ -3,6 +3,8 @@ using Grpc.Net.Client;
 namespace Utxorpc.Sdk;
 
 /// <summary>Configures a client that creates its own channel.</summary>
+/// <remarks>Default retry covers unary calls that fail with Unavailable, never SubmitTx or server streams.
+/// The caller handles reconnecting and, where the RPC supports it, resuming from a saved point.</remarks>
 public sealed class UtxorpcClientOptions
 {
     /// <summary>Gets or sets the server URL.</summary>
@@ -11,7 +13,7 @@ public sealed class UtxorpcClientOptions
     /// <summary>Gets the headers sent with every call.</summary>
     public Dictionary<string, string> Headers { get; } = new();
 
-    /// <summary>Gets or sets the total attempts per call, from 1 (no retry) to 5; defaults to 3.</summary>
+    /// <summary>Gets or sets the total attempts per retried unary call, from 1 (no retry) to 5; defaults to 3.</summary>
     public int MaxAttempts { get; set; } = 3;
 
     /// <summary>Gets or sets the silence before an active connection is pinged; defaults to 60 seconds, or infinite to disable.</summary>
