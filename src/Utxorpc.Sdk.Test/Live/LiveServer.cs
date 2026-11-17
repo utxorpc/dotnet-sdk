@@ -52,6 +52,12 @@ public sealed class LiveServer : IDisposable
     /// <summary>Gets the shared client for both protocol versions.</summary>
     public UtxorpcClient Client { get; }
 
+    /// <summary>Compares a live result with this server's column of the README's compatibility table.</summary>
+    public void Check(string row, Seen seen) => CompatibilityTable.Check(row, IsDingo ? "Dingo" : "Dolos", seen);
+
+    /// <summary>Compares a live result that cannot time out with this server's column.</summary>
+    public void Check(string row, bool works) => Check(row, works ? Seen.Works : Seen.Fails);
+
     /// <summary>Gets one discovery shared by tests without depending on their execution order.</summary>
     public Task<LiveSample> SampleAsync(CancellationToken cancellationToken) => sample.Value.WaitAsync(cancellationToken);
 

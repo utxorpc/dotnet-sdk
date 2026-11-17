@@ -37,6 +37,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="Live\*Tests.cs" Link="docs\live\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="vectors/**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\README.md" Link="docs\README.md" CopyToOutputDirectory="PreserveNewest" />
     <None Include="ReadmeSamples.cs" Link="docs\samples\ReadmeSamples.cs" CopyToOutputDirectory="PreserveNewest" />

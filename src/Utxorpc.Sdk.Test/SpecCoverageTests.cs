@@ -116,7 +116,7 @@ public sealed class SpecCoverageTests
                 $"Missing mask row for {rpc.InputType.FullName}");
             if (rpc.Name is "WatchTx" or "WatchMempool")
             {
-                Assert.Equal("Ignored by Dolos 1.6.3 and Dingo 0.94.1", target);
+                Assert.Equal("Not named by the Spec", target);
                 continue;
             }
             MessageDescriptor expected = rpc.Service.Name == "SyncService"

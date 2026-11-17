@@ -22,6 +22,7 @@ public sealed class DingoTests(LiveServer server, ITestOutputHelper output) : IC
         Beta.Query.ReadStateResponse response = await client.V1Beta.Query.ReadStateAsync(
             new Beta.Cardano.StateQuery { StakePoolDistribution = new() }, cancellationToken: timeout.Token);
         Assert.NotNull(response.Result?.Cardano?.StakePoolDistribution);
+        fixture.Check("ReadState", true);
         output.WriteLine($"Dingo ReadState: {response.CalculateSize()} response bytes.");
     }
 
@@ -46,6 +47,7 @@ public sealed class DingoTests(LiveServer server, ITestOutputHelper output) : IC
         Assert.Equal(hash, beta.Key);
         Assert.False(alpha.NativeBytes.IsEmpty);
         Assert.Equal(alpha.NativeBytes, beta.NativeBytes);
+        fixture.Check("ReadData", true);
         output.WriteLine($"Dingo ReadData: {alpha.NativeBytes.Length} native bytes on each version.");
     }
 
@@ -87,6 +89,7 @@ public sealed class DingoTests(LiveServer server, ITestOutputHelper output) : IC
             if (attempt == 0 && (!alphaExpected.SequenceEqual(alphaActual) || !betaExpected.SequenceEqual(betaActual))) continue;
             Assert.Equal(alphaExpected, alphaActual);
             Assert.Equal(betaExpected, betaActual);
+            fixture.Check("SearchUtxos paging", true);
             output.WriteLine($"Dingo SearchUtxos: raw pages and short method match {alphaActual.Length}/{betaActual.Length} references; {tried} distinct addresses tried; a nonempty token supplied the second page.");
             break;
         }

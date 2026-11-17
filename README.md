@@ -150,7 +150,7 @@ await foreach (Beta.Sync.AnyChainBlock historicalBlock in client.V1Beta.Sync.Dum
     Console.WriteLine(historicalBlock.NativeBytes.Length);
 ```
 
-Masks select paths from the message in this table, not from the request. The typed builders check field numbers or paths against the Spec's descriptors. Which paths a server honours is the server's choice.
+Masks select paths from the message in this table, not from the request. The typed builders check field numbers or paths against the Spec's descriptors. See [Server compatibility](#server-compatibility) for tested mask support.
 
 | Version | Request | Paths select from |
 |---|---|---|
@@ -161,11 +161,11 @@ Masks select paths from the message in this table, not from the request. The typ
 | v1alpha | `Query.ReadTxRequest` | `Query.ReadTxResponse` |
 | v1alpha | `Query.ReadUtxosRequest` | `Query.ReadUtxosResponse` |
 | v1alpha | `Query.SearchUtxosRequest` | `Query.SearchUtxosResponse` |
-| v1alpha | `Submit.WatchMempoolRequest` | Ignored by Dolos 1.6.3 and Dingo 0.94.1 |
+| v1alpha | `Submit.WatchMempoolRequest` | Not named by the Spec |
 | v1alpha | `Sync.DumpHistoryRequest` | `Sync.AnyChainBlock` |
 | v1alpha | `Sync.FetchBlockRequest` | `Sync.AnyChainBlock` |
 | v1alpha | `Sync.FollowTipRequest` | `Sync.AnyChainBlock` |
-| v1alpha | `Watch.WatchTxRequest` | Ignored by Dolos 1.6.3 and Dingo 0.94.1 |
+| v1alpha | `Watch.WatchTxRequest` | Not named by the Spec |
 | v1beta | `Query.ReadDataRequest` | `Query.ReadDataResponse` |
 | v1beta | `Query.ReadEraSummaryRequest` | `Query.ReadEraSummaryResponse` |
 | v1beta | `Query.ReadGenesisRequest` | `Query.ReadGenesisResponse` |
@@ -174,11 +174,11 @@ Masks select paths from the message in this table, not from the request. The typ
 | v1beta | `Query.ReadTxRequest` | `Query.ReadTxResponse` |
 | v1beta | `Query.ReadUtxosRequest` | `Query.ReadUtxosResponse` |
 | v1beta | `Query.SearchUtxosRequest` | `Query.SearchUtxosResponse` |
-| v1beta | `Submit.WatchMempoolRequest` | Ignored by Dolos 1.6.3 and Dingo 0.94.1 |
+| v1beta | `Submit.WatchMempoolRequest` | Not named by the Spec |
 | v1beta | `Sync.DumpHistoryRequest` | `Sync.AnyChainBlock` |
 | v1beta | `Sync.FetchBlockRequest` | `Sync.AnyChainBlock` |
 | v1beta | `Sync.FollowTipRequest` | `Sync.AnyChainBlock` |
-| v1beta | `Watch.WatchTxRequest` | Ignored by Dolos 1.6.3 and Dingo 0.94.1 |
+| v1beta | `Watch.WatchTxRequest` | Not named by the Spec |
 
 ## Cardano inputs
 
@@ -206,7 +206,7 @@ Beta.Watch.TxPredicate touches = Beta.Watch.TxPredicate.Produces(paymentPart: pa
 await foreach (WatchTxEvent _ in client.V1Beta.Watch.WatchTxAsync(touches, cancellationToken: cancellationToken)) break;
 ```
 
-`AllOf`, `AnyOf` and `Not` build the Spec's composite predicates; whether a server evaluates them is the server's choice. Dolos 1.6.3 and Dingo 0.94.1 both evaluate them on watch filters; on `SearchUtxos`, Dolos rejects them with `InvalidArgument` and Dingo returned no outputs for them in our tests, while one match with both parts returned the right output on both.
+`AllOf`, `AnyOf` and `Not` build the Spec's composite predicates; see [Server compatibility](#server-compatibility) for tested server support.
 
 Byte memory in a predicate is wrapped, not copied; do not change it while the predicate is in use. Empty parts mean no constraint; a wholly empty address or asset throws `ArgumentException`. An empty asset name matches any name; for an exact empty name use the v1beta Spec pattern with `AssetName = ByteString.Empty` (v1alpha cannot express it). Every match type of the Spec has a builder; a hand-built Spec message fits wherever a built one does.
 
@@ -341,7 +341,7 @@ Only transient failures resume (see `UtxorpcException.IsTransient`). `ResumeAtte
 
 With `ResumeAttempts = null` (also `"ResumeAttempts": null` in configuration), a dead, mistyped or refusing server is retried silently for ever, so cancel the stream or watch the [health check](#health-check).
 
-Resuming needs block headers: a FollowTip field mask must keep `cardano.header`, and the server must send blocks with WatchTx transactions. WatchTx cannot resume inside the first block it yielded from. It keeps the last 10 blocks' yielded events alive to undo them if necessary.
+Resuming needs block headers: a FollowTip field mask must keep `cardano.header`, and the server must send blocks with WatchTx transactions (see [Server compatibility](#server-compatibility)). WatchTx cannot resume inside the first block it yielded from. It keeps the last 10 blocks' yielded events alive to undo them if necessary.
 
 This works only for clients the SDK connects (the options constructor and dependency injection), not `UtxorpcClient(ChannelBase)`. Raw calls, `WaitForTxAsync` and `WatchMempoolAsync` do not resume. `TimeProvider` controls only the resume waits; replace it in tests.
 
@@ -433,6 +433,49 @@ The default gRPC receive limit is 4 MB per message. A large `DumpHistory` page o
 using UtxorpcClient largerMessages = new(url,
     configureChannel: o => o.MaxReceiveMessageSize = 16 * 1024 * 1024);
 ```
+
+## Server compatibility
+
+Checked on 2026-11-18 on preprod, with v1alpha and v1beta alike (ReadState exists only in v1beta). ✅ works · ⏳ works, but may not answer within 15 s · ❌ does not work · — not tested. The live tests read this table: a run against a server fails when what it sees differs from that server's column.
+
+| Call | Dolos v1.6.3 | Dingo v0.94.1 |
+|---|---|---|
+| ReadTip | ✅ | ✅ |
+| FetchBlock | ✅ | ✅ |
+| FetchBlock mask `native_bytes` | ✅ | ❌ |
+| DumpHistory | ✅ | ✅ |
+| DumpHistory with parsed headers | ✅ | ❌ |
+| FollowTip | ✅ | ✅ |
+| WatchTx | ✅ | ✅ |
+| WatchTx with block headers | ✅ | ❌ |
+| WatchTx with HasAddress and a start point opens and cancels | ✅ | ✅ |
+| ReadParams | ✅ | ✅ |
+| ReadParams mask `values` | ✅ | ❌ |
+| ReadGenesis | ✅ | ✅ |
+| ReadEraSummary | ✅ | ✅ |
+| ReadTx | ✅ | ✅ |
+| ReadUtxos | ✅ | ✅ |
+| ReadUtxos mask `items` | ❌ | ❌ |
+| SearchUtxos by exact address | ✅ | ✅ |
+| SearchUtxos by payment part | ✅ | ⏳ |
+| SearchUtxos by delegation part | ❌ | ⏳ |
+| SearchUtxos by address and asset | ✅ | ✅ |
+| SearchUtxos with AllOf | ❌ ¹ | ❌ ¹ |
+| SearchUtxos with AnyOf | ❌ ¹ | ❌ ¹ |
+| SearchUtxos paging | — | ✅ |
+| ReadState | — | ✅ |
+| ReadData | — | ✅ |
+| SubmitTx rejects an invalid transaction | ✅ | ✅ |
+| SubmitTx of a valid transaction | — | — |
+| EvalTx | ✅ | ✅ |
+| WaitForTx answers for an unknown transaction | ✅ | ❌ |
+| WaitForTx for a submitted transaction | — | — |
+| ReadMempool | ❌ | ✅ |
+| WatchMempool opens and cancels | ✅ | ✅ |
+| Other field masks | — | — |
+| Other transaction matches | — | — |
+
+- ¹ Put the address and the asset in one match instead.
 
 ## Migrating from 1.8.0-alpha
 
