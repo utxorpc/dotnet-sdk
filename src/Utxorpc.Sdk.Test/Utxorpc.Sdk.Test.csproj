@@ -35,6 +35,8 @@
 
   <ItemGroup>
     <None Include="vectors/**" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\README.md" Link="docs\README.md" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Utxorpc.Sdk.Example\Program.cs" Link="docs\Program.cs" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

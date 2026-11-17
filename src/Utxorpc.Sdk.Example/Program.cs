@@ -1,4 +1,5 @@
 using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Utxorpc.Sdk;
 using Utxorpc.Sdk.V1Beta;
@@ -14,13 +15,13 @@ Console.CancelKeyPress += (_, e) =>
     cancellation.Cancel();
 };
 
-// Connect once, with an optional API key.
+// Create one client, with an optional API key.
 Dictionary<string, string>? headers = apiKey is null ? null : new() { ["dmtr-api-key"] = apiKey };
 using UtxorpcClient u5c = new(url, headers);
 
 try
 {
-    // Read the tip through both versions on the same connection.
+    // Read the tip through both versions on the same channel.
     Beta.Sync.ReadTipResponse tip = await u5c.V1Beta.Sync.ReadTipAsync(new(), cancellationToken: cancellation.Token);
     Console.WriteLine($"v1beta: {tip.Tip.Slot} {Convert.ToHexString(tip.Tip.Hash.Span)}");
     Alpha.Sync.ReadTipResponse oldTip = await u5c.V1Alpha.Sync.ReadTipAsync(new(), cancellationToken: cancellation.Token);
@@ -81,7 +82,8 @@ static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient clie
     Console.WriteLine(parameters.LedgerTip.Slot);
     BlockPoint point = new(parameters.LedgerTip.Slot, parameters.LedgerTip.Hash.Memory);
     // Fetch only native block bytes.
-    await client.V1Beta.Sync.FetchBlockAsync(point, FieldMask.FromString("native_bytes"), cancellationToken);
+    FieldMask bytesOnly = FieldMask.FromString("native_bytes");
+    await client.V1Beta.Sync.FetchBlockAsync(point, bytesOnly, cancellationToken);
     Beta.Query.ReadUtxosResponse outputs = await client.V1Beta.Query.ReadUtxosAsync([new(txHash, 0)], cancellationToken: cancellationToken);
     Console.WriteLine(outputs.Items.Count);
     await foreach (Beta.Query.AnyUtxoData output in client.V1Beta.Query.SearchUtxosByAddressAsync(address, cancellationToken: cancellationToken))
@@ -104,10 +106,28 @@ static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient clie
     Beta.Query.ReadStateResponse state = await client.V1Beta.Query.ReadStateAsync(new Utxorpc.V1Beta.Cardano.StateQuery { }, cancellationToken: cancellationToken);
     Console.WriteLine(state.LedgerTip.Slot);
 
-    // Configure a client that creates its own connection.
-    UtxorpcClientOptions options = new() { Url = url, MaxAttempts = 3, KeepAliveInterval = TimeSpan.FromSeconds(60) };
+    // Configure a client that creates its own channel.
+    UtxorpcClientOptions options = new() { Url = url, MaxAttempts = 1, KeepAliveInterval = Timeout.InfiniteTimeSpan };
     if (apiKey is not null) options.Headers["dmtr-api-key"] = apiKey;
     using UtxorpcClient configured = new(options);
+
+    // Handle deadlines and token cancellation, or raise the receive limit on a new channel.
+    try
+    {
+        Beta.Sync.ReadTipResponse timedTip = await client.V1Beta.Sync.ReadTipAsync(
+            new(), deadline: DateTime.UtcNow.AddSeconds(10), cancellationToken: cancellationToken);
+        Console.WriteLine(timedTip.Tip.Slot);
+    }
+    catch (RpcException exception) when (exception.StatusCode == StatusCode.DeadlineExceeded)
+    {
+        Console.WriteLine("Deadline exceeded.");
+    }
+    catch (OperationCanceledException)
+    {
+        Console.WriteLine("Cancelled.");
+    }
+    using UtxorpcClient largerMessages = new(url,
+        configureChannel: o => o.MaxReceiveMessageSize = 16 * 1024 * 1024);
 
     // Share clients through dependency injection, with an optional name.
     ServiceCollection services = new();
@@ -131,7 +151,7 @@ static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient clie
     await foreach (Beta.Submit.WatchMempoolResponse _ in client.V1Beta.Submit.WatchMempoolAsync(null, cancellationToken: cancellationToken)) break;
     // Read every retained history page from the snapshot's tip.
     await foreach (Beta.Sync.AnyChainBlock historicalBlock in client.V1Beta.Sync.DumpAllHistoryAsync(
-        point, pageSize: 10, cancellationToken: cancellationToken))
+        point, pageSize: 10, fieldMask: bytesOnly, cancellationToken: cancellationToken))
         Console.WriteLine(historicalBlock.NativeBytes.Length);
     // Watch chain transactions, stopping after the first.
     await foreach (WatchTxEvent _ in client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: cancellationToken)) break;

@@ -1,0 +1,38 @@
+# Changelog
+
+## 2.0.0-alpha
+
+### Added
+
+- `UtxorpcClient` with v1alpha and v1beta clients for every RPC.
+- Short methods for every RPC, with the same names in both versions.
+- `OutputReference` and `BlockPoint` inputs, and paging across UTxOs and history.
+- C# 15 union events from `FollowTipAsync` and `WatchTxAsync`, checked by the compiler.
+- Optional field masks on short methods whose requests support them.
+- Predicate builders on the Spec's predicate types.
+- `UtxorpcClientOptions` for connection settings.
+- Retry of unary calls that fail with `Unavailable`, except `SubmitTx`.
+- Keep-alive pings on connections with open calls.
+- `AddUtxorpcClient` for shared and named clients in dependency injection.
+- A cancellation token on every call.
+- Disposal of the channel and handler the client creates.
+- `ReadAllAsync` to read a server stream and end the call with the loop.
+- Symbols and Source Link.
+
+### Changed
+
+- Targets net11.0 only. On .NET 10, stay on 1.8.0-alpha or use the Spec package's generated clients over your own `GrpcChannel`.
+- Uses one channel for all services and both versions.
+- Cancelling with a token throws `OperationCanceledException` on channels the SDK creates.
+- References Grpc.Net.Client 2.85.0 and Google.Protobuf 3.36.2 directly.
+- Includes package licence and repository metadata.
+
+### Removed
+
+- `QueryServiceClient`, `SubmitServiceClient`, `SyncServiceClient` and `WatchServiceClient` wrappers.
+- `Models` and `Utils.DataUtils`.
+- See "Migrating from 1.8.0-alpha" in the README for replacements.
+
+### Fixed
+
+- Blocks and FollowTip events without a parsed form are no longer dropped; WatchTx transactions without one no longer throw `InvalidOperationException`.
