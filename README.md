@@ -232,7 +232,9 @@ Use v1beta for new code, or v1alpha for servers that have not moved. `u5c.V1Beta
 
 ## Connecting
 
-Use `new UtxorpcClient(url, headers)` or the options constructor. Retry and keep-alive (outside a browser) are both on by default. To turn both off:
+Use `new UtxorpcClient(url, headers)` or the options constructor. Include the scheme: for example, `http://example.com:50051` for plaintext or `https://example.com:50051` for TLS. A bare host or `host:port` with no matching resolver throws `UriFormatException`; the SDK never selects a transport for you. Other schemes need an address resolver and explicit channel credentials. gRPC includes a `dns` resolver; register other resolvers via `ConfigureChannel`.
+
+Retry and keep-alive (outside a browser) are both on by default. To turn both off:
 
 ```csharp
 UtxorpcClientOptions options = new() { Url = url, MaxAttempts = 1, KeepAliveInterval = Timeout.InfiniteTimeSpan };
@@ -510,7 +512,7 @@ Dolos v1.6.3 and Dingo v0.94.1 accepted gRPC-Web and allowed cross-origin calls 
 
 | 1.8.0-alpha | Now |
 |---|---|
-| `new QueryServiceClient(url, headers)`, `SubmitServiceClient`, `SyncServiceClient`, `WatchServiceClient` | One `new UtxorpcClient(url, headers)` (or `new UtxorpcClient(new UtxorpcClientOptions { … })`, or `services.AddUtxorpcClient(…)`); use `X.Query`, `X.Submit`, `X.Sync`, `X.Watch`; dispose it at shutdown. An empty or blank URL throws `ArgumentException`; with `AddUtxorpcClient`, it throws `OptionsValidationException` at host start (or first resolve without a host). |
+| `new QueryServiceClient(url, headers)`, `SubmitServiceClient`, `SyncServiceClient`, `WatchServiceClient` | One `new UtxorpcClient(url, headers)` (or `new UtxorpcClient(new UtxorpcClientOptions { … })`, or `services.AddUtxorpcClient(…)`); use `X.Query`, `X.Submit`, `X.Sync`, `X.Watch`; dispose it at shutdown. An empty or blank URL throws `ArgumentException`; a missing scheme throws `UriFormatException`. A scheme with no resolver throws `ArgumentException` without a channel hook or `InvalidOperationException` with one. `AddUtxorpcClient` reports URL validation failures as `OptionsValidationException` at host start (or first resolve without a host); with a `ConfigureChannel` hook, an unresolved address like `localhost:50051` fails when the client is first created rather than at host start. |
 | `ReadUtxosAsync(TxoRef[] keys, FieldMask?)` | `X.Query.ReadUtxosAsync([new(txHash, index)], m, ct)` |
 | `SearchUtxosAsync(Predicate, uint maxItems, FieldMask?, string? start_token)` | `X.Query.SearchAllUtxosAsync(predicate, pageSize, m, ct)` reads every page; one page: the raw `SearchUtxosAsync(new() { … })`, where an empty `NextToken` ends the pages (v1beta: absent or empty, so test `string.IsNullOrEmpty(response.NextToken)`). |
 | `ReadParamsAsync(FieldMask?)`, `ReadGenesisAsync`, `ReadEraSummaryAsync` | `X.Query.ReadParamsAsync(m, ct)`, `ReadGenesisAsync(m, ct)`, `ReadEraSummaryAsync(m, ct)`; `Values.Cardano` is a typed `PParams`. |

@@ -6,6 +6,7 @@ using System.Net.Http.Headers;
 using Google.Protobuf;
 using Grpc.Core;
 using Grpc.Net.Client;
+using Grpc.Net.Client.Balancer;
 using Grpc.Net.Client.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -463,9 +464,6 @@ public sealed class ClientOptionsTests(ITestOutputHelper output) : ClientTestBas
         Assert.Throws<ArgumentNullException>(() => UtxorpcServiceCollectionExtensions.AddUtxorpcClient(null!, "a", _ => { }));
         Assert.Throws<ArgumentNullException>(() => new ServiceCollection().AddUtxorpcClient(null!, _ => { }));
         Assert.Throws<ArgumentNullException>(() => new ServiceCollection().AddUtxorpcClient("a", null!));
-        UriFormatException url = Assert.Throws<UriFormatException>(() => new UtxorpcClient("127.0.0.1:50061"));
-        Assert.Contains("http://", url.Message, StringComparison.Ordinal);
-        Assert.IsType<UriFormatException>(url.InnerException);
         foreach (TimeSpan timeout in new[] { TimeSpan.Zero, TimeSpan.FromMilliseconds(-2), TimeSpan.MaxValue, TimeSpan.FromMilliseconds((double)int.MaxValue + 1) })
             Assert.Equal("options", Assert.Throws<ArgumentOutOfRangeException>(() => new UtxorpcClient(new UtxorpcClientOptions { Url = server.Url, DefaultTimeout = timeout })).ParamName);
         foreach (TimeSpan timeout in new[] { Timeout.InfiniteTimeSpan, TimeSpan.FromMilliseconds(int.MaxValue) })
@@ -475,6 +473,192 @@ public sealed class ClientOptionsTests(ITestOutputHelper output) : ClientTestBas
         Assert.Empty(server.State.Calls);
         using UtxorpcClient resolver = new($"dns:/localhost:{new Uri(server.Url).Port}", configureChannel: options => options.Credentials = ChannelCredentials.Insecure);
         Assert.Equal(42UL, (await resolver.V1Beta.Sync.ReadTipAsync(cancellation.Token)).Tip.Slot);
+    }
+
+    /// <summary>Reports a missing scheme at host start unless a hook could provide a resolver for it.</summary>
+    [Theory]
+    [InlineData("localhost:50051", true)]
+    [InlineData("localhost:50051/", true)]
+    [InlineData("localhost:50051?value=1:2", true)]
+    [InlineData("localhost:50051#fragment", true)]
+    [InlineData("dolos:50051", true)]
+    [InlineData("127.0.0.1:50061", false)]
+    [InlineData("[::1]:50051", false)]
+    [InlineData("localhost", false)]
+    public async Task UrlWithoutScheme(string url, bool parsesAsCustomScheme)
+    {
+        UriFormatException direct = Assert.Throws<UriFormatException>(() => new UtxorpcClient(url));
+        if (url == "127.0.0.1:50061") Assert.IsType<UriFormatException>(direct.InnerException);
+        if (url == "localhost")
+            Assert.Equal("The URL is not a valid URI; it needs a scheme, such as http:// or https://.", direct.Message);
+        else
+        {
+            Assert.Contains("missing a scheme", direct.Message, StringComparison.Ordinal);
+            Assert.Contains("http://example.com:50051", direct.Message, StringComparison.Ordinal);
+            Assert.Contains("https://example.com:50051", direct.Message, StringComparison.Ordinal);
+        }
+        Assert.Equal(direct.Message, Assert.Throws<UriFormatException>(() => new UtxorpcClient(new UtxorpcClientOptions { Url = url })).Message);
+
+        int hooks = 0;
+        Action<GrpcChannelOptions> configure = _ => hooks++;
+        UriFormatException hooked = Assert.Throws<UriFormatException>(() => new UtxorpcClient(url, configureChannel: configure));
+        Assert.Equal(direct.Message, hooked.Message);
+        Assert.Equal(parsesAsCustomScheme ? 1 : 0, hooks);
+        if (parsesAsCustomScheme) AssertResolverMiss(hooked);
+
+        foreach (bool withHook in new[] { false, true })
+        {
+            hooks = 0;
+            HostApplicationBuilder builder = Host.CreateApplicationBuilder();
+            builder.Services.AddUtxorpcClient("missing-scheme", options =>
+            {
+                options.Url = url;
+                options.ConfigureChannel = withHook ? configure : null;
+            });
+            using IHost host = builder.Build();
+            if (parsesAsCustomScheme && withHook)
+            {
+                await host.StartAsync(cancellation.Token);
+                Assert.Equal(0, hooks);
+                UriFormatException error = Assert.Throws<UriFormatException>(() => host.Services.GetRequiredKeyedService<UtxorpcClient>("missing-scheme"));
+                Assert.Equal(direct.Message, error.Message);
+                AssertResolverMiss(error);
+                Assert.Equal(1, hooks);
+            }
+            else
+            {
+                OptionsValidationException error = await Assert.ThrowsAsync<OptionsValidationException>(() => host.StartAsync(cancellation.Token));
+                Assert.Equal($"Utxorpc client 'missing-scheme': {direct.Message}", error.Message);
+                Assert.Equal(0, hooks);
+            }
+        }
+
+        void AssertResolverMiss(UriFormatException error)
+        {
+            if (url.Contains('?') || url.Contains('#')) Assert.Null(error.InnerException);
+            else Assert.IsType<InvalidOperationException>(error.InnerException);
+        }
+    }
+
+    /// <summary>Accepts explicit HTTP and HTTPS addresses without needing a resolver.</summary>
+    [Theory]
+    [InlineData("http://localhost:50051")]
+    [InlineData("https://example.com")]
+    public void UrlWithHttpScheme(string url)
+    {
+        using UtxorpcClient direct = new(url);
+        using UtxorpcClient configured = new(new UtxorpcClientOptions { Url = url });
+    }
+
+    /// <summary>Recognizes gRPC's built-in DNS scheme at host start, before channel credentials are needed.</summary>
+    [Fact]
+    public async Task BuiltInDnsSchemePassesStartupValidation()
+    {
+        HostApplicationBuilder builder = Host.CreateApplicationBuilder();
+        const string url = "dns:50051";
+        builder.Services.AddUtxorpcClient(options => options.Url = url);
+        using IHost host = builder.Build();
+        await host.StartAsync(cancellation.Token);
+        InvalidOperationException grpcError = Assert.Throws<InvalidOperationException>(() => GrpcChannel.ForAddress(url));
+        Assert.Equal(grpcError.Message, Assert.Throws<InvalidOperationException>(() => host.Services.GetRequiredService<UtxorpcClient>()).Message);
+    }
+
+    /// <summary>Names unsupported schemes without a hook at host start and defers hooked schemes to first resolve.</summary>
+    [Theory]
+    [InlineData("grpc://localhost:50051")]
+    [InlineData("static:///localhost:50051")]
+    public async Task UnregisteredUrlScheme(string url)
+    {
+        ArgumentException direct = Assert.Throws<ArgumentException>(() => new UtxorpcClient(url));
+        Assert.Contains("has no address resolver", direct.Message, StringComparison.Ordinal);
+        Assert.Contains("http:// or https://", direct.Message, StringComparison.Ordinal);
+        Assert.Contains("ConfigureChannel", direct.Message, StringComparison.Ordinal);
+        Assert.Equal(direct.Message, Assert.Throws<ArgumentException>(() => new UtxorpcClient(new UtxorpcClientOptions { Url = url })).Message);
+        InvalidOperationException hooked = Assert.Throws<InvalidOperationException>(() => new UtxorpcClient(url, configureChannel: _ => { }));
+        Assert.Equal(direct.Message, hooked.Message);
+        Assert.IsType<InvalidOperationException>(hooked.InnerException);
+
+        HostApplicationBuilder builder = Host.CreateApplicationBuilder();
+        builder.Services.AddUtxorpcClient("unsupported", options => options.Url = url);
+        using IHost host = builder.Build();
+        OptionsValidationException error = await Assert.ThrowsAsync<OptionsValidationException>(() => host.StartAsync(cancellation.Token));
+        Assert.Equal($"Utxorpc client 'unsupported': {direct.Message}", error.Message);
+
+        int hooks = 0;
+        HostApplicationBuilder hookedBuilder = Host.CreateApplicationBuilder();
+        hookedBuilder.Services.AddUtxorpcClient(options =>
+        {
+            options.Url = url;
+            options.ConfigureChannel = _ => hooks++;
+        });
+        using IHost hookedHost = hookedBuilder.Build();
+        await hookedHost.StartAsync(cancellation.Token);
+        Assert.Equal(0, hooks);
+        Assert.Equal(direct.Message, Assert.Throws<InvalidOperationException>(() => hookedHost.Services.GetRequiredService<UtxorpcClient>()).Message);
+        Assert.Equal(1, hooks);
+    }
+
+    /// <summary>Does not include sensitive URL parts even in inner exceptions.</summary>
+    [Theory]
+    [InlineData("http://CANARY_USER:CANARY_secret@host:bad?CANARY_QUERY#CANARY_FRAGMENT", typeof(UriFormatException))]
+    [InlineData("dns://CANARY_USER:CANARY_secret@host/service?CANARY_QUERY#CANARY_FRAGMENT", typeof(InvalidOperationException))]
+    [InlineData("grpc://CANARY_USER:CANARY_secret@host:50051?CANARY_QUERY#CANARY_FRAGMENT", typeof(InvalidOperationException))]
+    [InlineData("dns://CANARY_USER:CANARY_secret@host/service", typeof(InvalidOperationException))]
+    [InlineData("dns:///service?CANARY_QUERY", typeof(InvalidOperationException))]
+    [InlineData("dns:///service#CANARY_FRAGMENT", typeof(InvalidOperationException))]
+    [InlineData("CANARYUSER:CANARYPASS@host:50051", typeof(InvalidOperationException))]
+    public void CredentialUrlIsNotEchoed(string url, Type exceptionType)
+    {
+        Action<GrpcChannelOptions> configure = _ => { };
+        Exception direct = Assert.Throws(exceptionType, () => new UtxorpcClient(url, configureChannel: configure));
+        Exception configured = Assert.Throws(exceptionType, () => new UtxorpcClient(new UtxorpcClientOptions { Url = url, ConfigureChannel = configure }));
+        foreach (Exception error in new[] { direct, configured })
+        {
+            string diagnostic = error.ToString();
+            Assert.DoesNotContain("CANARY_USER", diagnostic, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("CANARYUSER", diagnostic, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("secret", diagnostic, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("CANARYPASS", diagnostic, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("CANARY_QUERY", diagnostic, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("CANARY_FRAGMENT", diagnostic, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>Resolves an explicit custom scheme through each hook, without running the DI hook at host start.</summary>
+    [Fact]
+    public async Task CustomResolverWorksThroughChannelHook()
+    {
+        int hooks = 0;
+        Uri endpoint = new(server.Url);
+        using ServiceProvider resolvers = new ServiceCollection()
+            .AddSingleton<ResolverFactory>(new TestResolverFactory(new BalancerAddress(endpoint.Host, endpoint.Port)))
+            .BuildServiceProvider();
+        void Configure(GrpcChannelOptions options)
+        {
+            hooks++;
+            options.ServiceProvider = resolvers;
+            options.Credentials = ChannelCredentials.Insecure;
+        }
+
+        const string url = "custom:50051";
+        using UtxorpcClient direct = new(url, configureChannel: Configure);
+        using UtxorpcClient configured = new(new UtxorpcClientOptions { Url = url, ConfigureChannel = Configure });
+        HostApplicationBuilder builder = Host.CreateApplicationBuilder();
+        builder.Services.AddUtxorpcClient(options => { options.Url = url; options.ConfigureChannel = Configure; });
+        using IHost host = builder.Build();
+        await host.StartAsync(cancellation.Token);
+        Assert.Equal(2, hooks);
+        foreach (UtxorpcClient client in new[] { direct, configured, host.Services.GetRequiredService<UtxorpcClient>() })
+            Assert.Equal(42UL, (await client.V1Beta.Sync.ReadTipAsync(cancellation.Token)).Tip.Slot);
+        Assert.Equal(3, hooks);
+    }
+
+    private sealed class TestResolverFactory(BalancerAddress endpoint) : ResolverFactory
+    {
+        private readonly StaticResolverFactory resolver = new(_ => [endpoint]);
+
+        public override string Name => "custom";
+        public override Resolver Create(ResolverOptions options) => resolver.Create(options);
     }
 
     /// <summary>Rejects invalid resume settings even when resuming is disabled.</summary>
@@ -592,7 +776,7 @@ public sealed class ClientOptionsTests(ITestOutputHelper output) : ClientTestBas
         Assert.Equal(new[]
         {
             "Utxorpc client 'preprod': UtxorpcClientOptions.Url is required. (Parameter 'options')",
-            "Utxorpc client: The URL is not a valid URI; it needs a scheme, such as http:// or https://."
+            "Utxorpc client: The URL is missing a scheme. Use http://example.com:50051 for plaintext or https://example.com:50051 for TLS."
         }.Order(StringComparer.Ordinal), error.InnerExceptions.Select(exception => exception.Message).Order(StringComparer.Ordinal));
     }
 

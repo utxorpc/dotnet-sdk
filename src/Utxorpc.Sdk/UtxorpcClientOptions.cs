@@ -7,7 +7,10 @@ namespace Utxorpc.Sdk;
 /// FollowTip and WatchTx can optionally reconnect and resume from their saved points.</remarks>
 public sealed class UtxorpcClientOptions
 {
-    /// <summary>Gets or sets the server URL.</summary>
+    /// <summary>Gets or sets the server URL, including its scheme.</summary>
+    /// <remarks>Without a channel hook, dependency injection rejects a bare host and port at host start.
+    /// With a hook, an address parsed as a custom scheme is checked for a resolver on first resolve,
+    /// not at host start. The hook runs only when the client is created.</remarks>
     public string? Url { get; set; }
 
     /// <summary>Gets the headers sent with every call; names that differ only in case are one header, as in gRPC.</summary>

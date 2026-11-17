@@ -54,3 +54,4 @@
 ### Fixed
 
 - Blocks and FollowTip events without a parsed form are no longer dropped; WatchTx transactions without one no longer throw `InvalidOperationException`.
+- Bare client addresses now prompt you to specify `http://` or `https://`; schemes with no resolver report how to register one.
