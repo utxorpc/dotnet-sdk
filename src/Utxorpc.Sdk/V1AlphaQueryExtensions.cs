@@ -12,7 +12,7 @@ public static class V1AlphaQueryExtensions
     /// <include file="Docs.xml" path="docs/call/*"/>
     /// <include file="Docs.xml" path="docs/mask/*"/>
     public static Task<ReadParamsResponse> ReadParamsAsync(this QueryService.QueryServiceClient client, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
-        client.ReadParamsAsync(new ReadParamsRequest { FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync;
+        Errors.Typed(client.ReadParamsAsync(new ReadParamsRequest { FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync);
 
     /// <include file="Docs.xml" path="docs/member[@name='ReadUtxosAsync']/*"/>
     /// <include file="Docs.xml" path="docs/call/*"/>
@@ -25,7 +25,7 @@ public static class V1AlphaQueryExtensions
         {
             request.Keys.Add(new TxoRef { Hash = UnsafeByteOperations.UnsafeWrap(references[i].TxHash), Index = references[i].Index });
         }
-        return client.ReadUtxosAsync(request, cancellationToken: cancellationToken).ResponseAsync;
+        return Errors.Typed(client.ReadUtxosAsync(request, cancellationToken: cancellationToken).ResponseAsync);
     }
 
     /// <include file="Docs.xml" path="docs/member[@name='SearchAllUtxosAsync']/*[not(self::remarks)]"/>
@@ -60,19 +60,19 @@ public static class V1AlphaQueryExtensions
     /// <include file="Docs.xml" path="docs/call/*"/>
     /// <include file="Docs.xml" path="docs/mask/*"/>
     public static Task<ReadTxResponse> ReadTxAsync(this QueryService.QueryServiceClient client, ReadOnlyMemory<byte> txHash, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
-        client.ReadTxAsync(new ReadTxRequest { Hash = UnsafeByteOperations.UnsafeWrap(txHash), FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync;
+        Errors.Typed(client.ReadTxAsync(new ReadTxRequest { Hash = UnsafeByteOperations.UnsafeWrap(txHash), FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync);
 
     /// <include file="Docs.xml" path="docs/member[@name='ReadGenesisAsync']/*"/>
     /// <include file="Docs.xml" path="docs/call/*"/>
     /// <include file="Docs.xml" path="docs/mask/*"/>
     public static Task<ReadGenesisResponse> ReadGenesisAsync(this QueryService.QueryServiceClient client, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
-        client.ReadGenesisAsync(new ReadGenesisRequest { FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync;
+        Errors.Typed(client.ReadGenesisAsync(new ReadGenesisRequest { FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync);
 
     /// <include file="Docs.xml" path="docs/member[@name='ReadEraSummaryAsync']/*"/>
     /// <include file="Docs.xml" path="docs/call/*"/>
     /// <include file="Docs.xml" path="docs/mask/*"/>
     public static Task<ReadEraSummaryResponse> ReadEraSummaryAsync(this QueryService.QueryServiceClient client, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
-        client.ReadEraSummaryAsync(new ReadEraSummaryRequest { FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync;
+        Errors.Typed(client.ReadEraSummaryAsync(new ReadEraSummaryRequest { FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync);
 
     /// <include file="Docs.xml" path="docs/member[@name='ReadDataAsync']/*"/>
     /// <include file="Docs.xml" path="docs/call/*"/>
@@ -85,7 +85,7 @@ public static class V1AlphaQueryExtensions
         {
             request.Keys.Add(UnsafeByteOperations.UnsafeWrap(datumHashes[i]));
         }
-        return client.ReadDataAsync(request, cancellationToken: cancellationToken).ResponseAsync;
+        return Errors.Typed(client.ReadDataAsync(request, cancellationToken: cancellationToken).ResponseAsync);
     }
 
     extension(UtxoPredicate)

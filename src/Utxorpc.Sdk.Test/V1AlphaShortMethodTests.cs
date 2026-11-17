@@ -529,6 +529,45 @@ public sealed class V1AlphaShortMethodTests : IAsyncLifetime
         Assert.Empty(server.State.Requests);
     }
 
+    /// <summary>Maps failures of every unary, paging and stream short method to the same typed error.</summary>
+    [Fact]
+    public async Task EveryShortMethodThrowsTheTypedError()
+    {
+        server.State.FailWith = Grpc.Core.StatusCode.NotFound;
+        ReadOnlyMemory<byte> hash = new byte[32];
+        BlockPoint point = new(42, hash);
+        V1AlphaClients calls = client.V1Alpha;
+        Func<Task>[] unary =
+        [
+            () => calls.Query.ReadParamsAsync(),
+            () => calls.Query.ReadUtxosAsync([new(hash, 0)]),
+            () => calls.Query.ReadTxAsync(hash),
+            () => calls.Query.ReadGenesisAsync(),
+            () => calls.Query.ReadEraSummaryAsync(),
+            () => calls.Query.ReadDataAsync([hash]),
+            () => calls.Submit.SubmitTxAsync(hash),
+            () => calls.Submit.EvalTxAsync(hash),
+            () => calls.Submit.ReadMempoolAsync(),
+            () => calls.Sync.ReadTipAsync(),
+            () => calls.Sync.FetchBlockAsync(point),
+        ];
+        foreach (Func<Task> call in unary)
+            Assert.Equal(UtxorpcErrorKind.NotFound, (await Assert.ThrowsAsync<UtxorpcException>(call)).Kind);
+        await Check(calls.Query.SearchAllUtxosAsync(new()));
+        await Check(calls.Query.SearchUtxosByAddressAsync(hash));
+        await Check(calls.Sync.DumpAllHistoryAsync(point, 1));
+        await Check(calls.Sync.FollowTipAsync());
+        await Check(calls.Submit.WaitForTxAsync(hash));
+        await Check(calls.Submit.WatchMempoolAsync());
+        await Check(calls.Watch.WatchTxAsync());
+
+        static async Task Check<T>(IAsyncEnumerable<T> stream) =>
+            Assert.Equal(UtxorpcErrorKind.NotFound, (await Assert.ThrowsAsync<UtxorpcException>(async () =>
+            {
+                await foreach (T _ in stream) { }
+            })).Kind);
+    }
+
     private T TakeRequest<T>() where T : class, IMessage
     {
         Assert.True(server.State.Requests.TryDequeue(out IMessage? request));

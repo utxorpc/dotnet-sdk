@@ -41,6 +41,12 @@ internal sealed class FakeSyncV1Alpha(FakeState state) : Alpha.Sync.SyncService.
                     3 => new() { Reset = new() { Slot = 3 }, Tip = new() { Slot = 103 } },
                     _ => new() { Tip = new() { Slot = 104 } }
                 } : new() { Reset = new() { Slot = (ulong)i } });
+                if (state.AbortAfterFirstMessage)
+                {
+                    await Task.Delay(50, context.CancellationToken);
+                    context.GetHttpContext().Abort();
+                    return;
+                }
                 if (state.FailAfterFirstMessage) throw new RpcException(new Status(StatusCode.Unavailable, "fake"));
             }
             await Task.Delay(Timeout.Infinite, context.CancellationToken);
@@ -104,6 +110,12 @@ internal sealed class FakeSyncV1Beta(FakeState state) : Beta.Sync.SyncService.Sy
                     3 => new() { Reset = new() { Slot = 3 }, Tip = new() { Slot = 103 } },
                     _ => new() { Tip = new() { Slot = 104 } }
                 } : new() { Reset = new() { Slot = (ulong)i } });
+                if (state.AbortAfterFirstMessage)
+                {
+                    await Task.Delay(50, context.CancellationToken);
+                    context.GetHttpContext().Abort();
+                    return;
+                }
                 if (state.FailAfterFirstMessage) throw new RpcException(new Status(StatusCode.Unavailable, "fake"));
             }
             await Task.Delay(Timeout.Infinite, context.CancellationToken);

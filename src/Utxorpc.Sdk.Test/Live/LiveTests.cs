@@ -270,8 +270,10 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
         Assert.Equal(sample.NativeBytes, (await Client.V1Alpha.Query.ReadTxAsync(sample.Transaction.Hash.Memory, cancellationToken: ct)).Tx.NativeBytes);
         Assert.Equal(sample.NativeBytes, (await Client.V1Beta.Query.ReadTxAsync(sample.Transaction.Hash.Memory, cancellationToken: ct)).Tx.NativeBytes);
         byte[] unknown = new byte[32];
-        RpcException alpha = await Assert.ThrowsAsync<RpcException>(() => Client.V1Alpha.Query.ReadTxAsync(unknown, cancellationToken: ct));
-        RpcException beta = await Assert.ThrowsAsync<RpcException>(() => Client.V1Beta.Query.ReadTxAsync(unknown, cancellationToken: ct));
+        UtxorpcException alpha = await Assert.ThrowsAsync<UtxorpcException>(() => Client.V1Alpha.Query.ReadTxAsync(unknown, cancellationToken: ct));
+        UtxorpcException beta = await Assert.ThrowsAsync<UtxorpcException>(() => Client.V1Beta.Query.ReadTxAsync(unknown, cancellationToken: ct));
+        Assert.Equal(UtxorpcErrorKind.NotFound, alpha.Kind);
+        Assert.Equal(UtxorpcErrorKind.NotFound, beta.Kind);
         Assert.Equal(StatusCode.NotFound, alpha.StatusCode);
         Assert.Equal(StatusCode.NotFound, beta.StatusCode);
     }
@@ -471,8 +473,10 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
     {
         using CancellationTokenSource timeout = Timeout();
         byte[] invalid = [0x80];
-        RpcException alpha = await Assert.ThrowsAsync<RpcException>(() => Client.V1Alpha.Submit.SubmitTxAsync(invalid, timeout.Token));
-        RpcException beta = await Assert.ThrowsAsync<RpcException>(() => Client.V1Beta.Submit.SubmitTxAsync(invalid, timeout.Token));
+        UtxorpcException alpha = await Assert.ThrowsAsync<UtxorpcException>(() => Client.V1Alpha.Submit.SubmitTxAsync(invalid, timeout.Token));
+        UtxorpcException beta = await Assert.ThrowsAsync<UtxorpcException>(() => Client.V1Beta.Submit.SubmitTxAsync(invalid, timeout.Token));
+        Assert.Equal(UtxorpcErrorKind.InvalidTx, alpha.Kind);
+        Assert.Equal(UtxorpcErrorKind.InvalidTx, beta.Kind);
         Assert.Equal(alpha.StatusCode, beta.StatusCode);
         output.WriteLine($"SubmitTx: v1alpha={alpha.StatusCode}, v1beta={beta.StatusCode}.");
     }

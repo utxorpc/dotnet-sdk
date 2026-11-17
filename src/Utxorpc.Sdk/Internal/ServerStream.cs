@@ -6,6 +6,9 @@ namespace Utxorpc.Sdk.Internal;
 /// <summary>Starts a server stream and maps its messages; chosen by type, so the one reading loop stores no delegate.</summary>
 internal interface IServerStream<TState, TMessage, TResult>
 {
+    /// <summary>Gets whether failures are mapped to the SDK's typed error.</summary>
+    static virtual bool TypedErrors => true;
+
     /// <summary>Starts the call when enumeration starts.</summary>
     static abstract AsyncServerStreamingCall<TMessage> Start(TState state, CancellationToken cancellationToken);
 
@@ -16,6 +19,9 @@ internal interface IServerStream<TState, TMessage, TResult>
 /// <summary>Reads a call the caller started and yields each message unchanged.</summary>
 internal readonly struct StartedCall<T> : IServerStream<AsyncServerStreamingCall<T>, T, T>
 {
+    /// <summary>Leaves failures of a generated call unchanged.</summary>
+    public static bool TypedErrors => false;
+
     /// <summary>Returns the caller's call.</summary>
     public static AsyncServerStreamingCall<T> Start(AsyncServerStreamingCall<T> state, CancellationToken cancellationToken) => state;
 
@@ -31,8 +37,18 @@ internal static class ServerStream
         where TStream : IServerStream<TState, T, TResult>
     {
         using AsyncServerStreamingCall<T> call = TStream.Start(state, cancellationToken);
-        while (await call.ResponseStream.MoveNext(cancellationToken).ConfigureAwait(false))
+        while (true)
         {
+            bool next;
+            try
+            {
+                next = await call.ResponseStream.MoveNext(cancellationToken).ConfigureAwait(false);
+            }
+            catch (RpcException exception) when (TStream.TypedErrors)
+            {
+                throw Errors.From(exception);
+            }
+            if (!next) yield break;
             yield return TStream.Map(call.ResponseStream.Current);
         }
     }

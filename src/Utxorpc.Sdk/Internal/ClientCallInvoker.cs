@@ -132,10 +132,15 @@ internal sealed class ClientCallInvoker(CallInvoker inner, Metadata headers, Tim
             {
                 return await task.ConfigureAwait(false);
             }
-            catch (OperationCanceledException exception)
+            catch (Exception exception)
             {
-                if (readToken.IsCancellationRequested) callerToken = readToken;
-                else if (DeadlinePassed(deadline, callerToken)) throw DeadlineExceeded(exception);
+                // Failed headers can leave the unary response unread, even when the call is never disposed.
+                if (this is UnaryDeadlineCall<T> { Response: not null } unary) unary.ObserveResponse();
+                if (exception is OperationCanceledException cancelled)
+                {
+                    if (readToken.IsCancellationRequested) callerToken = readToken;
+                    else if (DeadlinePassed(deadline, callerToken)) throw DeadlineExceeded(cancelled);
+                }
                 throw;
             }
         }
@@ -152,6 +157,11 @@ internal sealed class ClientCallInvoker(CallInvoker inner, Metadata headers, Tim
         internal void Dispose()
         {
             Unary.Dispose();
+            ObserveResponse();
+        }
+
+        internal void ObserveResponse()
+        {
             if (Response.IsFaulted) _ = Response.Exception;
             else if (!Response.IsCompleted)
                 _ = Response.ContinueWith(static task => _ = task.Exception, CancellationToken.None,

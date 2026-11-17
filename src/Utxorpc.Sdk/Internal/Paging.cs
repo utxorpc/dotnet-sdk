@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Google.Protobuf.Collections;
+using Grpc.Core;
 
 namespace Utxorpc.Sdk.Internal;
 
@@ -17,7 +18,15 @@ internal static class Paging
         do
         {
             cancellationToken.ThrowIfCancellationRequested();
-            TResponse response = await fetchPage(client, state, token, cancellationToken).ConfigureAwait(false);
+            TResponse response;
+            try
+            {
+                response = await fetchPage(client, state, token, cancellationToken).ConfigureAwait(false);
+            }
+            catch (RpcException exception)
+            {
+                throw Errors.From(exception);
+            }
             RepeatedField<TItem> pageItems = items(response);
             for (int i = 0; i < pageItems.Count; i++)
             {

@@ -7,6 +7,8 @@
 - Compiler warnings for null requests and bare `new(…)` on generated calls, with the “Use the short method” code fix.
 - `UtxorpcClient` with v1alpha and v1beta clients for every RPC.
 - Short methods for every RPC, with the same names in both versions.
+- `UtxorpcException` for short-method failures, preserving the original gRPC status and detail,
+  with `UtxorpcErrorKind` and `IsTransient` to identify temporary failures.
 - `OutputReference` and `BlockPoint` inputs, compared by value (their bytes, not the array), and paging across UTxOs and history.
 - C# 15 union events from `FollowTipAsync` and `WatchTxAsync`, checked by the compiler.
 - Optional field masks on short methods whose requests support them.

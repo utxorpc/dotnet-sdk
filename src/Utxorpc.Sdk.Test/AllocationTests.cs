@@ -75,6 +75,35 @@ public sealed class AllocationTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>Bounds the one state machine needed to type a response that is not ready yet.</summary>
+    [Fact]
+    public async Task AWaitingCallCostsOneStateMachine()
+    {
+        StubChannel channel = new();
+        channel.Invoker.WaitForResponse = true;
+        using UtxorpcClient client = new(channel);
+        long shortBytes, rawBytes;
+        SynchronizationContext? previous = SynchronizationContext.Current;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(null);
+            shortBytes = await Measure(() => Complete(client.V1Beta.Sync.ReadTipAsync()));
+            rawBytes = await Measure(() => Complete(client.V1Beta.Sync.ReadTipAsync(new Beta.Sync.ReadTipRequest()).ResponseAsync));
+        }
+        finally { SynchronizationContext.SetSynchronizationContext(previous); }
+        output.WriteLine($"Waiting ReadTip: short={shortBytes}, raw={rawBytes} B per 1,000 calls; extra={(shortBytes - rawBytes) / 1000.0} B/call.");
+        Assert.InRange(shortBytes - rawBytes, 1, 160000);
+
+        Task Complete(Task response)
+        {
+            Assert.False(response.IsCompleted);
+            channel.Invoker.CompleteResponse!();
+            // Keep the per-thread counter on this thread even if the continuation is queued.
+            response.GetAwaiter().GetResult();
+            return Task.CompletedTask;
+        }
+    }
+
     /// <summary>Requires every unary short method to allocate exactly its raw request's cost.</summary>
     [Theory]
     [InlineData(false)]
@@ -371,7 +400,8 @@ public sealed class AllocationTests(ITestOutputHelper output)
     internal sealed class StubInvoker : CallInvoker
     {
         internal Metadata? LastHeaders;
-        internal bool Cancelled;
+        internal bool Cancelled, WaitForResponse;
+        internal Action? CompleteResponse;
         internal object[] StreamMessages = [];
         internal int StreamLength = 3, StreamCalls, StreamDisposals;
         private static readonly Task<Metadata> Headers = Task.FromResult(Metadata.Empty);
@@ -380,6 +410,12 @@ public sealed class AllocationTests(ITestOutputHelper output)
             Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
         {
             LastHeaders = options.Headers;
+            if (WaitForResponse)
+            {
+                TaskCompletionSource<TResponse> response = new();
+                CompleteResponse = () => response.SetResult(Activator.CreateInstance<TResponse>()!);
+                return new(response.Task, Headers, static () => Status.DefaultSuccess, static () => Metadata.Empty, static () => { });
+            }
             return Cancelled ? new(Task.FromCanceled<TResponse>(new CancellationToken(true)), Headers,
                 static () => Status.DefaultSuccess, static () => Metadata.Empty, static () => { }) : Answer<TResponse>.Call;
         }

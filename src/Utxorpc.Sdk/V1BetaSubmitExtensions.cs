@@ -15,7 +15,7 @@ public static class V1BetaSubmitExtensions
     /// <include file="Docs.xml" path="docs/member[@name='SubmitTxAsync']/*"/>
     /// <include file="Docs.xml" path="docs/call/*"/>
     public static Task<SubmitTxResponse> SubmitTxAsync(this SubmitService.SubmitServiceClient client, ReadOnlyMemory<byte> tx, CancellationToken cancellationToken = default) =>
-        client.SubmitTxAsync(new SubmitTxRequest { Tx = new() { Raw = UnsafeByteOperations.UnsafeWrap(tx) } }, cancellationToken: cancellationToken).ResponseAsync;
+        Errors.Typed(client.SubmitTxAsync(new SubmitTxRequest { Tx = new() { Raw = UnsafeByteOperations.UnsafeWrap(tx) } }, cancellationToken: cancellationToken).ResponseAsync, transaction: true);
 
     /// <include file="Docs.xml" path="docs/member[@name='WaitForTxAsync']/*[not(self::remarks)]"/>
     /// <include file="Docs.xml" path="docs/stream/*[not(self::remarks)]"/>
@@ -41,12 +41,12 @@ public static class V1BetaSubmitExtensions
     /// <include file="Docs.xml" path="docs/member[@name='EvalTxAsync']/*"/>
     /// <include file="Docs.xml" path="docs/call/*"/>
     public static Task<EvalTxResponse> EvalTxAsync(this SubmitService.SubmitServiceClient client, ReadOnlyMemory<byte> tx, CancellationToken cancellationToken = default) =>
-        client.EvalTxAsync(new EvalTxRequest { Tx = new() { Raw = UnsafeByteOperations.UnsafeWrap(tx) } }, cancellationToken: cancellationToken).ResponseAsync;
+        Errors.Typed(client.EvalTxAsync(new EvalTxRequest { Tx = new() { Raw = UnsafeByteOperations.UnsafeWrap(tx) } }, cancellationToken: cancellationToken).ResponseAsync, transaction: true);
 
     /// <include file="Docs.xml" path="docs/member[@name='ReadMempoolAsync']/*"/>
     /// <include file="Docs.xml" path="docs/call/*"/>
     public static Task<ReadMempoolResponse> ReadMempoolAsync(this SubmitService.SubmitServiceClient client, CancellationToken cancellationToken = default) =>
-        client.ReadMempoolAsync(new ReadMempoolRequest(), cancellationToken: cancellationToken).ResponseAsync;
+        Errors.Typed(client.ReadMempoolAsync(new ReadMempoolRequest(), cancellationToken: cancellationToken).ResponseAsync);
 
     /// <include file="Docs.xml" path="docs/member[@name='WatchMempoolAsync']/*"/>
     /// <include file="Docs.xml" path="docs/stream/*"/>

@@ -242,9 +242,45 @@ Now, in 2.0.0-alpha, use the `FollowTipEvent` switch expression in Quick start. 
 
 The generated call (`u5c.V1Beta.Sync.FollowTip(new() { … }).ReadAllAsync()`) still yields Spec messages. A message without an action this SDK knows ends the short stream with `InvalidOperationException`.
 
-## Errors and deadlines
+## Errors
 
-Server failures arrive as `Grpc.Core.RpcException` with the status code. A call that must finish in time gets a deadline: set `DefaultTimeout` for every unary call, or pass `deadline:` to a generated call. When it expires, the call throws `RpcException` with `StatusCode.DeadlineExceeded`: unary calls, streams, single reads and `ResponseHeadersAsync`, with or without retry, on any channel. On a channel the SDK creates, cancelling your token first throws `OperationCanceledException` (at the same instant, either may win); on your own channel set `ThrowOperationCanceledOnCancellation = true` for that. The rule follows the client's clock and a server that reports the timeout as `DeadlineExceeded`; any other status a server sends for its own timeout arrives unchanged. Only a call with a deadline pays for it: about 250 B per unary call, 104 B per stream and about 130 B per read that has to wait (Release build, .NET 11):
+Short methods throw `UtxorpcException` with a `Kind`, the server's `Detail` and the original gRPC error as `InnerException`:
+
+```csharp
+ReadOnlyMemory<byte> tx = signedTx;
+try
+{
+    await client.V1Beta.Submit.SubmitTxAsync(tx, cancellationToken);
+}
+catch (UtxorpcException e) when (e.Kind == UtxorpcErrorKind.InvalidTx)
+{
+    Console.WriteLine(e.Detail);
+}
+```
+
+| Kind | Means | What to do |
+|---|---|---|
+| `InvalidTx` | The server rejected the transaction. | Fix the transaction; do not resubmit it as is. |
+| `InvalidRequest` | The server rejected the request's content. | Fix the request. |
+| `NotFound` | The requested item is not known. | Check the transaction, block or output reference. |
+| `Unsupported` | The server does not offer the call. | Use a server that does. |
+| `Unavailable` | The server could not be reached or the connection broke. | Try again (SubmitTx: check first, see Retry); `IsTransient` identifies temporary failures. |
+| `Timeout` | The deadline or `DefaultTimeout` passed. | Check the server and choose a suitable deadline. |
+| `Other` | Another failure. | Read `StatusCode` and `Detail`. |
+
+`UtxorpcException` is an `RpcException`, so existing catch blocks still match. Raw generated calls, including their `ReadAllAsync()` streams, throw the plain `RpcException`.
+
+On a channel the SDK creates, cancellation stays `OperationCanceledException`. A caller-supplied channel, or a hook that turns `ThrowOperationCanceledOnCancellation` off, reports gRPC's `Cancelled`, typed `Other` by short methods.
+
+On `SubmitTxAsync` and `EvalTxAsync` only, an `Unknown` answer reads `InvalidTx` because one server answers every rejected transaction that way. `StatusCode` always keeps the server's original code.
+
+A short method that waits for the network allocates 112 B more (Release) for the typed error; an answer already there costs nothing.
+
+`UtxorpcException.IsTransient(error)` accepts typed or raw errors: it is true for `Unavailable` and for a transport failure reported as `Internal`. A message the client cannot read arrives as `Unavailable` from gRPC but is `Kind.Other` and not transient.
+
+The typed error's `Status.DebugException` is the original `RpcException` (whose own `DebugException` is the transport's), and its `Message` is "Kind: detail" (or "Kind (StatusCode)" for empty detail). Use `IsTransient` instead of testing `DebugException`.
+
+A call that must finish in time gets a deadline: set `DefaultTimeout` for every unary call, or pass `deadline:` to a generated call. When it expires, the call throws `RpcException` with `StatusCode.DeadlineExceeded`: unary calls, streams, single reads and `ResponseHeadersAsync`, with or without retry, on any channel. Short methods report `Kind.Timeout`. On a channel the SDK creates, cancelling your token first throws `OperationCanceledException` (at the same instant, either may win); on your own channel set `ThrowOperationCanceledOnCancellation = true` for that. The rule follows the client's clock and a server that reports the timeout as `DeadlineExceeded`; any other status a server sends for its own timeout arrives unchanged. Only a call with a deadline pays for it: about 250 B per unary call, 104 B per stream and about 130 B per read that has to wait (Release build, .NET 11):
 
 ```csharp
 UtxorpcClientOptions timed = new() { Url = url, DefaultTimeout = TimeSpan.FromSeconds(30) };

@@ -65,11 +65,12 @@ public sealed class ClientOptionsTests(ITestOutputHelper output) : ClientTestBas
         server.State.FailWith = StatusCode.Unavailable;
         server.State.FailFirstCalls = 1;
         using UtxorpcClient client = new(server.Url);
-        RpcException error = await Assert.ThrowsAsync<RpcException>(async () =>
+        UtxorpcException error = await Assert.ThrowsAsync<UtxorpcException>(async () =>
         {
             if (version == "v1alpha") await client.V1Alpha.Submit.SubmitTxAsync(new byte[] { 1 }, cancellation.Token);
             else await client.V1Beta.Submit.SubmitTxAsync(new byte[] { 1 }, cancellation.Token);
         });
+        Assert.Equal(UtxorpcErrorKind.Unavailable, error.Kind);
         Assert.Equal(StatusCode.Unavailable, error.StatusCode);
         AssertCalls($"/utxorpc.{version}.submit.SubmitService/SubmitTx", 1);
     }
@@ -81,7 +82,8 @@ public sealed class ClientOptionsTests(ITestOutputHelper output) : ClientTestBas
         server.State.FailWith = StatusCode.Unavailable;
         server.State.FailFirstCalls = 1;
         using UtxorpcClient client = new(new UtxorpcClientOptions { Url = server.Url, MaxAttempts = 1 });
-        RpcException error = await Assert.ThrowsAsync<RpcException>(() => client.V1Beta.Sync.ReadTipAsync(cancellation.Token));
+        UtxorpcException error = await Assert.ThrowsAsync<UtxorpcException>(() => client.V1Beta.Sync.ReadTipAsync(cancellation.Token));
+        Assert.Equal(UtxorpcErrorKind.Unavailable, error.Kind);
         Assert.Equal(StatusCode.Unavailable, error.StatusCode);
         AssertCalls("/utxorpc.v1beta.sync.SyncService/ReadTip", 1);
     }
@@ -239,10 +241,11 @@ public sealed class ClientOptionsTests(ITestOutputHelper output) : ClientTestBas
         using UtxorpcClient client = new(new UtxorpcClientOptions { Url = server.Url, MaxAttempts = 1, DefaultTimeout = TimeSpan.FromMilliseconds(200) });
         await WarmConnectionAsync(client);
         int pages = 0;
-        RpcException paged = await Assert.ThrowsAsync<RpcException>(async () =>
+        UtxorpcException paged = await Assert.ThrowsAsync<UtxorpcException>(async () =>
         {
             await foreach (Beta.Query.AnyUtxoData _ in client.V1Beta.Query.SearchAllUtxosAsync(new(), cancellationToken: cancellation.Token)) pages++;
         });
+        Assert.Equal(UtxorpcErrorKind.Timeout, paged.Kind);
         Assert.Equal(1, pages);
         Assert.Equal(StatusCode.DeadlineExceeded, paged.StatusCode);
         Assert.Equal(StatusCode.DeadlineExceeded, (await Assert.ThrowsAsync<RpcException>(async () => await client.V1Beta.Query.SearchUtxosAsync(new() { StartToken = "p2" }, cancellationToken: cancellation.Token))).StatusCode);
@@ -300,11 +303,12 @@ public sealed class ClientOptionsTests(ITestOutputHelper output) : ClientTestBas
         server.State.FailAfterFirstMessage = true;
         using UtxorpcClient client = new(server.Url);
         List<ulong> slots = new();
-        RpcException error = await Assert.ThrowsAsync<RpcException>(async () =>
+        UtxorpcException error = await Assert.ThrowsAsync<UtxorpcException>(async () =>
         {
             await foreach (V1Beta.FollowTipEvent response in client.V1Beta.Sync.FollowTipAsync(null, cancellationToken: cancellation.Token))
                 slots.Add(response.Response.Reset.Slot);
         });
+        Assert.Equal(UtxorpcErrorKind.Unavailable, error.Kind);
         Assert.Equal(StatusCode.Unavailable, error.StatusCode);
         Assert.Equal(new ulong[] { 1 }, slots);
         AssertCalls("/utxorpc.v1beta.sync.SyncService/FollowTip", 1);
@@ -355,10 +359,11 @@ public sealed class ClientOptionsTests(ITestOutputHelper output) : ClientTestBas
         server.State.FailWith = StatusCode.Unavailable;
         server.State.FailFirstCalls = 1;
         using UtxorpcClient client = new(server.Url);
-        RpcException error = await Assert.ThrowsAsync<RpcException>(async () =>
+        UtxorpcException error = await Assert.ThrowsAsync<UtxorpcException>(async () =>
         {
             await foreach (V1Beta.FollowTipEvent _ in client.V1Beta.Sync.FollowTipAsync(null, cancellationToken: cancellation.Token)) { }
         });
+        Assert.Equal(UtxorpcErrorKind.Unavailable, error.Kind);
         Assert.Equal(StatusCode.Unavailable, error.StatusCode);
         AssertCalls("/utxorpc.v1beta.sync.SyncService/FollowTip", 1);
     }
@@ -586,9 +591,11 @@ public sealed class ClientAllocationTests(ITestOutputHelper output) : ClientTest
 {
     private const string ReadTipPath = "/utxorpc.v1beta.sync.SyncService/ReadTip";
 
-    /// <summary>Observes the wrapper response fault when the caller reads only headers and disposes.</summary>
-    [Fact]
-    public async Task HeadersOnlyThenDisposeObservesTheUnaryResponseFault()
+    /// <summary>Observes the wrapper response fault when the caller reads only headers, with or without disposal.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HeadersOnlyObservesTheUnaryResponseFault(bool dispose)
     {
         server.State.HoldSecondPage = true;
         using UtxorpcClient client = new(new UtxorpcClientOptions { Url = server.Url, MaxAttempts = 1 });
@@ -602,7 +609,7 @@ public sealed class ClientAllocationTests(ITestOutputHelper output) : ClientTest
         TaskScheduler.UnobservedTaskException += OnUnobserved;
         try
         {
-            for (int i = 0; i < 5; i++) await HeadersOnly(client);
+            for (int i = 0; i < 5; i++) await HeadersOnly(client, dispose);
             Collect();
             Assert.Equal(0, unobserved);
         }
@@ -610,11 +617,15 @@ public sealed class ClientAllocationTests(ITestOutputHelper output) : ClientTest
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private async Task HeadersOnly(UtxorpcClient client)
+    private async Task HeadersOnly(UtxorpcClient client, bool dispose)
     {
-        using AsyncUnaryCall<Beta.Query.SearchUtxosResponse> call = client.V1Beta.Query.SearchUtxosAsync(new() { StartToken = "p2" },
+        AsyncUnaryCall<Beta.Query.SearchUtxosResponse> call = client.V1Beta.Query.SearchUtxosAsync(new() { StartToken = "p2" },
             deadline: DateTime.UtcNow.AddMilliseconds(200), cancellationToken: cancellation.Token);
-        Assert.Equal(StatusCode.DeadlineExceeded, (await Assert.ThrowsAsync<RpcException>(() => call.ResponseHeadersAsync)).StatusCode);
+        try
+        {
+            Assert.Equal(StatusCode.DeadlineExceeded, (await Assert.ThrowsAsync<RpcException>(() => call.ResponseHeadersAsync)).StatusCode);
+        }
+        finally { if (dispose) call.Dispose(); }
     }
 
     private static void Collect()

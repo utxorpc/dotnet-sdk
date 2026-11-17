@@ -110,6 +110,16 @@ static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient clie
     if (apiKey is not null) options.Headers["dmtr-api-key"] = apiKey;
     using UtxorpcClient configured = new(options);
 
+    ReadOnlyMemory<byte> tx = signedTx;
+    try
+    {
+        await client.V1Beta.Submit.SubmitTxAsync(tx, cancellationToken);
+    }
+    catch (UtxorpcException e) when (e.Kind == UtxorpcErrorKind.InvalidTx)
+    {
+        Console.WriteLine(e.Detail);
+    }
+
     // Give every unary call without its own deadline a timeout, retries included.
     UtxorpcClientOptions timed = new() { Url = url, DefaultTimeout = TimeSpan.FromSeconds(30) };
     using UtxorpcClient timedClient = new(timed);

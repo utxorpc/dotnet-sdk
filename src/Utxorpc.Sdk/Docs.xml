@@ -2,14 +2,14 @@
   <call>
     <param name="client">The generated client.</param>
     <param name="cancellationToken">Cancels the call.</param>
-    <exception cref="Grpc.Core.RpcException">The server or connection failed, or the deadline or <see cref="Utxorpc.Sdk.UtxorpcClientOptions.DefaultTimeout"/> expired (<see cref="Grpc.Core.StatusCode.DeadlineExceeded"/>).</exception>
-    <exception cref="System.OperationCanceledException">The token was cancelled, on a channel the SDK creates; your own channel reports <see cref="Grpc.Core.RpcException"/> with <see cref="Grpc.Core.StatusCode.Cancelled"/> unless it sets <c>ThrowOperationCanceledOnCancellation</c>.</exception>
+    <exception cref="Utxorpc.Sdk.UtxorpcException">The server or the transport failed; see <see cref="Utxorpc.Sdk.UtxorpcException.Kind"/>.</exception>
+    <exception cref="System.OperationCanceledException">The token was cancelled, on a channel the SDK creates; your own channel reports <see cref="Utxorpc.Sdk.UtxorpcException"/> with <see cref="Grpc.Core.StatusCode.Cancelled"/> and <see cref="Utxorpc.Sdk.UtxorpcErrorKind.Other"/> unless it sets <c>ThrowOperationCanceledOnCancellation</c>.</exception>
   </call>
   <stream>
     <param name="client">The generated client.</param>
     <param name="cancellationToken">Cancels enumeration.</param>
-    <exception cref="Grpc.Core.RpcException">The server or connection failed while enumerating. On a generated call with a deadline, expiry is reported as <see cref="Grpc.Core.StatusCode.DeadlineExceeded"/>.</exception>
-    <exception cref="System.OperationCanceledException">The token was cancelled, on a channel the SDK creates; your own channel reports <see cref="Grpc.Core.RpcException"/> with <see cref="Grpc.Core.StatusCode.Cancelled"/> unless it sets <c>ThrowOperationCanceledOnCancellation</c>.</exception>
+    <exception cref="Utxorpc.Sdk.UtxorpcException">The server or the transport failed while enumerating; see <see cref="Utxorpc.Sdk.UtxorpcException.Kind"/>.</exception>
+    <exception cref="System.OperationCanceledException">The token was cancelled, on a channel the SDK creates; your own channel reports <see cref="Utxorpc.Sdk.UtxorpcException"/> with <see cref="Grpc.Core.StatusCode.Cancelled"/> and <see cref="Utxorpc.Sdk.UtxorpcErrorKind.Other"/> unless it sets <c>ThrowOperationCanceledOnCancellation</c>.</exception>
     <remarks><para>Nothing is sent until the sequence is enumerated; failures arrive while enumerating.</para></remarks>
   </stream>
   <mask>

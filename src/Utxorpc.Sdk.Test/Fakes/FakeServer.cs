@@ -27,6 +27,10 @@ internal sealed class FakeState
     public bool HoldSecondPage { get; set; }
     /// <summary>Gets or sets a status returned instead of an answer.</summary>
     public StatusCode? FailWith { get; set; }
+    /// <summary>Gets or sets the detail sent with a configured failure.</summary>
+    public string FailDetail { get; set; } = "fake";
+    /// <summary>Gets or sets whether FollowTip aborts its connection after its first message.</summary>
+    public bool AbortAfterFirstMessage { get; set; }
     /// <summary>Gets or sets how many initial calls fail, or null for every call.</summary>
     public int? FailFirstCalls { get; set; }
     /// <summary>Gets or sets whether FollowTip fails after writing its first message.</summary>
@@ -64,7 +68,7 @@ internal sealed class FakeState
         Calls.Enqueue(new FakeCall(context.Method, headers, context.GetHttpContext().Connection.Id));
         if (FailWith is not null && (FailFirstCalls is null || call <= FailFirstCalls))
         {
-            throw new RpcException(new Status(FailWith.Value, "fake"));
+            throw new RpcException(new Status(FailWith.Value, FailDetail));
         }
     }
 }

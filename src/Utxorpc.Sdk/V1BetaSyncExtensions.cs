@@ -15,7 +15,7 @@ public static class V1BetaSyncExtensions
     /// <include file="Docs.xml" path="docs/member[@name='ReadTipAsync']/*"/>
     /// <include file="Docs.xml" path="docs/call/*"/>
     public static Task<ReadTipResponse> ReadTipAsync(this SyncService.SyncServiceClient client, CancellationToken cancellationToken = default) =>
-        client.ReadTipAsync(new ReadTipRequest(), cancellationToken: cancellationToken).ResponseAsync;
+        Errors.Typed(client.ReadTipAsync(new ReadTipRequest(), cancellationToken: cancellationToken).ResponseAsync);
 
     /// <include file="Docs.xml" path="docs/member[@name='FetchBlockAsync']/*"/>
     /// <include file="Docs.xml" path="docs/call/*"/>
@@ -31,7 +31,7 @@ public static class V1BetaSyncExtensions
     {
         FetchBlockRequest request = new() { FieldMask = fieldMask };
         AddPoints(request.Ref, points);
-        return client.FetchBlockAsync(request, cancellationToken: cancellationToken).ResponseAsync;
+        return Errors.Typed(client.FetchBlockAsync(request, cancellationToken: cancellationToken).ResponseAsync);
     }
 
     /// <include file="Docs.xml" path="docs/member[@name='FollowTipAsync']/*[not(self::remarks)]"/>
