@@ -7,7 +7,7 @@
 - Example programs under `examples/`: query, sync, submit, dependency injection and a worker service.
 - `dotnet new utxorpc-worker`, from the Utxorpc.Templates package.
 - A package icon.
-- A server compatibility table for Dolos and Dingo in the README, checked by the live tests.
+- A server compatibility table in the README, with dated results for specific server versions checked by the live tests.
 - Blazor WebAssembly support through gRPC-Web, using the new Grpc.Net.Client.Web 2.85.0 dependency.
 - A browser sample in `examples/Browser`.
 - Start-up validation of the URL and retry, keep-alive and timeout settings for every `AddUtxorpcClient` registration, naming the client and invalid option.
@@ -42,8 +42,8 @@
 - Targets net11.0 only. On .NET 10, stay on 1.8.0-alpha or use the Spec package's generated clients over your own `GrpcChannel`.
 - Uses one channel for all services and both versions.
 - Cancelling with a token throws `OperationCanceledException` on channels the SDK creates. An expired deadline throws `RpcException` with `DeadlineExceeded` on every call, its headers included.
-- References Grpc.Net.Client 2.85.0, Google.Protobuf 3.36.2 and Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions 11.0.0 directly.
-- Includes package licence and repository metadata.
+- References Utxorpc.Spec 0.19.2-alpha, Grpc.Net.Client 2.85.0, Grpc.Net.Client.Web 2.85.0, Google.Protobuf 3.36.2 and Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions 11.0.0 directly.
+- Includes package license and repository metadata.
 
 ### Removed
 

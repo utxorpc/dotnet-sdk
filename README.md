@@ -28,7 +28,7 @@ Requires .NET 11: the package targets net11.0 only and depends on Utxorpc.Spec 0
 
 ## Quick start
 
-Read the tip, fetch its block, then follow the chain from there. `url` and `apiKey` come from the environment and `ct` is a cancellation token; the whole program is `examples/Sync`.
+Read the tip, fetch its block, then follow the chain from there. After installing the package in a new console app, replace the contents of `Program.cs` with this (`examples/Sync` shows how to handle Ctrl+C):
 
 ```csharp
 using System.Diagnostics;
@@ -36,7 +36,13 @@ using Google.Protobuf.WellKnownTypes;
 using Utxorpc.Sdk;
 using Utxorpc.Sdk.V1Beta;
 using Utxorpc.V1Beta.Sync;
+using Alpha = Utxorpc.V1Alpha;
 using Beta = Utxorpc.V1Beta;
+
+string url = Environment.GetEnvironmentVariable("UTXORPC_URL") ?? "http://localhost:50051";
+string? apiKey = Environment.GetEnvironmentVariable("DMTR_API_KEY");
+CancellationToken ct = CancellationToken.None;
+
 Dictionary<string, string>? headers = apiKey is null ? null : new() { ["dmtr-api-key"] = apiKey };
 using UtxorpcClient u5c = new(url, headers);
 Beta.Sync.BlockRef tip = (await u5c.V1Beta.Sync.ReadTipAsync(ct)).Tip;
@@ -44,6 +50,7 @@ Console.WriteLine($"Tip: slot {tip.Slot}, hash {Convert.ToHexString(tip.Hash.Spa
 BlockPoint point = new(tip.Slot, tip.Hash.Memory);
 Beta.Sync.FetchBlockResponse fetched = await u5c.V1Beta.Sync.FetchBlockAsync(point, FieldMask.FromFieldNumbers<AnyChainBlock>(AnyChainBlock.NativeBytesFieldNumber), ct);
 Console.WriteLine($"Block bytes: {fetched.Block[0].NativeBytes.Length}");
+int events = 0;
 await foreach (FollowTipEvent e in u5c.V1Beta.Sync.FollowTipAsync(point, cancellationToken: ct))
 {
     Console.WriteLine(e switch
@@ -53,24 +60,24 @@ await foreach (FollowTipEvent e in u5c.V1Beta.Sync.FollowTipAsync(point, cancell
         Reset r => $"Reset: slot {r.Point.Slot}",
         null => throw new UnreachableException()
     });
+    if (++events == 5) break;
 }
 ```
 
-The generated calls take the Spec's requests and are always there, using the same connected `u5c` and cancellation token `ct`:
+To try the generated calls, append this to the program. These calls take the Spec's requests and use the same connected `u5c` and cancellation token `ct`:
 
 ```csharp
-using Alpha = Utxorpc.V1Alpha;
 Beta.Sync.ReadTipResponse response = await u5c.V1Beta.Sync.ReadTipAsync(new(), cancellationToken: ct);
 Alpha.Sync.ReadTipResponse oldTip = await u5c.V1Alpha.Sync.ReadTipAsync(new(), cancellationToken: ct);
 Beta.Sync.FetchBlockResponse block = await u5c.V1Beta.Sync.FetchBlockAsync(
     new() { Ref = { response.Tip }, FieldMask = new() { Paths = { "native_bytes" } } },
     cancellationToken: ct);
-int events = 0;
+int generatedEvents = 0;
 await foreach (Beta.Sync.FollowTipResponse update in
     u5c.V1Beta.Sync.FollowTip(new() { Intersect = { response.Tip } }, cancellationToken: ct).ReadAllAsync())
 {
     Console.WriteLine(update.ActionCase);
-    if (++events == 3)
+    if (++generatedEvents == 3)
     {
         break;
     }
@@ -159,6 +166,8 @@ await foreach (Beta.Sync.AnyChainBlock historicalBlock in client.V1Beta.Sync.Dum
 
 Masks select paths from the message in this table, not from the request. The typed builders check field numbers or paths against the Spec's descriptors. See [Server compatibility](#server-compatibility) for tested mask support.
 
+For FollowTip with `ResumeOnFailure`, keep `cardano.header` in the mask even if you only read `native_bytes`. The first applied or undone block without a header turns off resuming. The next connection failure is thrown instead of triggering a reconnect.
+
 | Version | Request | Paths select from |
 |---|---|---|
 | v1alpha | `Query.ReadDataRequest` | `Query.ReadDataResponse` |
@@ -235,7 +244,7 @@ Construction headers go on every call. In `UtxorpcClientOptions.Headers`, names 
 
 Unary calls failing with `Unavailable` are tried up to `MaxAttempts` (default 3) times in all. This usually means a lost connection or restarting server, but the server may still have run the call. `SubmitTx` is never retried by the SDK's default policy: check with `WaitForTxAsync` or `ReadTxAsync` before sending it again. Server streams are never retried by that policy. FollowTip and WatchTx can reconnect separately when `ResumeOnFailure` is enabled (see Resuming a broken stream). Retry behaviour on a caller-owned channel, or after `ConfigureChannel` changes the policy, is your responsibility.
 
-Default retry costs about 1.2 KB more per unary call (1,139–1,227 bytes measured), nothing per stream message. Turn it off in hot loops such as fetching block after block.
+Default retry costs about 1.25 KB more per unary call (1,248 and 1,259 bytes measured), nothing per stream message. Turn it off in hot loops such as fetching block after block.
 
 Outside a browser, when a connection with an open call receives nothing for `KeepAliveInterval` (default 60 s), a ping checks it; a ping unanswered for 30 s ends the open calls, so a dead connection is noticed after the interval plus 30 s.
 
@@ -285,8 +294,10 @@ builder.Services.AddHealthChecks().AddCheck<UtxorpcHealthCheck>("utxorpc", timeo
 
 For a named client, use `Microsoft.Extensions.Diagnostics.HealthChecks` and:
 
-```text
-builder.Services.AddHealthChecks().Add(new HealthCheckRegistration("preprod", provider => new UtxorpcHealthCheck(provider.GetRequiredKeyedService<UtxorpcClient>("preprod")), null, null, TimeSpan.FromSeconds(5)));
+```csharp
+builder.Services.AddHealthChecks().Add(new HealthCheckRegistration("preprod",
+    provider => new UtxorpcHealthCheck(provider.GetRequiredKeyedService<UtxorpcClient>("preprod")),
+    null, null, TimeSpan.FromSeconds(5)));
 ```
 
 The check reads the v1beta tip, falling back to v1alpha when v1beta is unsupported, and reports `tip slot N` or the registration's failure status with the error. Every check tries v1beta again. The time limit also covers a server that accepts the connection and never answers.
@@ -309,6 +320,8 @@ UtxorpcClientOptions browserOptions = new() { Url = url, ConfigureChannel = o =>
 ```
 
 Any API key a page sends is visible to the page's users.
+
+Hosted endpoints that need an API key in a header (for example Demeter) were not verified from a browser.
 
 The sample in `examples/Browser` shows the tip and incoming blocks, with a "No compression" tick box.
 It is not part of the solution:
@@ -385,7 +398,7 @@ catch (UtxorpcException e) when (e.Kind == UtxorpcErrorKind.InvalidTx)
 
 | Kind | Means | What to do |
 |---|---|---|
-| `InvalidTx` | The server rejected the transaction. | Fix the transaction; do not resubmit it as is. |
+| `InvalidTx` | A transaction rejection or a server fault. | Read `StatusCode` and `Detail`, and fix a rejected transaction before sending it again. If submission failed with `Unknown`, the server may have failed: check with `ReadTxAsync`, or `WaitForTxAsync` with a time limit, before retrying. |
 | `InvalidRequest` | The server rejected the request's content. | Fix the request. |
 | `NotFound` | The requested item is not known. | Check the transaction, block or output reference. |
 | `Unsupported` | The server does not offer the call. | Use a server that does. |
@@ -397,11 +410,11 @@ catch (UtxorpcException e) when (e.Kind == UtxorpcErrorKind.InvalidTx)
 
 On a channel the SDK creates, cancellation stays `OperationCanceledException`. A caller-supplied channel, or a hook that turns `ThrowOperationCanceledOnCancellation` off, reports gRPC's `Cancelled`, typed `Other` by short methods.
 
-On `SubmitTxAsync` and `EvalTxAsync` only, an `Unknown` answer reads `InvalidTx` because one server answers every rejected transaction that way. `StatusCode` always keeps the server's original code.
+On `SubmitTxAsync` and `EvalTxAsync` only, an `Unknown` answer maps to `InvalidTx`. `StatusCode` always keeps the original code: `Unknown` may mean the server itself failed, not that the transaction was invalid.
 
 In a browser, a server that cannot be reached or refuses the page's origin is reported by gRPC as `Internal`; the browser does not say which, so `MaxAttempts` does not retry it. Its `Kind` is `Unavailable` and `IsTransient` is true, so FollowTip and WatchTx reconnect when `ResumeOnFailure` is enabled.
 
-Compressed gRPC-Web answers from Dingo v0.94.1 fail in a browser with `Internal` (`Kind.Other`, not transient); turn compression off as shown in [In the browser](#in-the-browser-blazor-webassembly).
+For the observed browser failure with compressed gRPC-Web responses and its workaround, see [Server compatibility](#server-compatibility).
 
 A short method that waits for the network allocates 112 B more (Release) for the typed error; an answer already there costs nothing.
 
@@ -442,7 +455,9 @@ using UtxorpcClient largerMessages = new(url,
 
 ## Server compatibility
 
-Checked on 2026-11-18 on preprod, with v1alpha and v1beta alike (ReadState exists only in v1beta). ✅ works · ⏳ works, but may not answer within 15 s · ❌ does not work · — not tested. The live tests read this table: a run against a server fails when what it sees differs from that server's column.
+Checked on preprod on 2026-11-18, for the server versions shown, with v1alpha and v1beta alike (`ReadState` is v1beta only). The live tests read this table: a run against a server fails when its results don't match that server's column.
+
+✅ works · ⏳ works but may exceed 15 s · ❌ does not work · — not tested
 
 | Call | Dolos v1.6.3 | Dingo v0.94.1 |
 |---|---|---|
@@ -483,11 +498,11 @@ Checked on 2026-11-18 on preprod, with v1alpha and v1beta alike (ReadState exist
 
 - ¹ Put the address and the asset in one match instead.
 
-Seen on Dolos v1.6.3 and Dingo v0.94.1, not checked by the live tests:
+Other observations as of 2026-11-18 for Dolos v1.6.3 and Dingo v0.94.1 (not checked by the live tests):
 
-Dolos accepts `DumpHistory` pages of at most 100 blocks. On preprod, 10 blocks were about 0.7–0.8 MB with the parsed form, or 0.09 MB with `native_bytes` only. Dolos can repeat the tip block, so WatchTx can yield its matching transactions twice.
+Dolos v1.6.3 accepted `DumpHistory` pages of at most 100 blocks. On preprod, 10 blocks were about 0.7–0.8 MB with the parsed form, or 0.09 MB with `native_bytes` only. This version can repeat the tip block, so WatchTx can yield its matching transactions twice.
 
-Dolos and Dingo accept gRPC-Web and allow cross-origin calls by default. Dingo compresses answers of 1 KiB and more, but its CORS setup hides `Grpc-Encoding`; disable compression in a browser (see [In the browser](#in-the-browser-blazor-webassembly)). Hosted endpoints that need an API key in a header (for example Demeter) were not verified from a browser.
+Dolos v1.6.3 and Dingo v0.94.1 accepted gRPC-Web and allowed cross-origin calls by default. Dingo v0.94.1 compressed responses of 1 KiB or more when the client offered gzip, but its CORS setup hid `Grpc-Encoding`. Browser calls then failed with `Internal` (`Kind.Other`, not transient). To avoid this, disable compression as shown in [In the browser](#in-the-browser-blazor-webassembly).
 
 ## Migrating from 1.8.0-alpha
 
@@ -527,6 +542,9 @@ Pass a fake `CallInvoker` through a caller-owned `ChannelBase`. Return a failed 
 
 ```csharp
 using Grpc.Core;
+using Utxorpc.Sdk;
+using Beta = Utxorpc.V1Beta;
+
 FakeChannel channel = new(new FakeInvoker(request => request is Beta.Sync.ReadTipRequest
     ? new Beta.Sync.ReadTipResponse { Tip = new() { Slot = 42 } } : null));
 using UtxorpcClient client = new(channel);

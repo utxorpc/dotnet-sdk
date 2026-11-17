@@ -1,6 +1,8 @@
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Utxorpc.Sdk.V1Beta;
 using Alpha = Utxorpc.V1Alpha;
 using Beta = Utxorpc.V1Beta;
@@ -10,6 +12,16 @@ namespace Utxorpc.Sdk.Test;
 /// <summary>Holds the README sample lines that no example program shows. Compiled, never called.</summary>
 internal static class ReadmeSamples
 {
+    internal static async Task FollowTipAsync(UtxorpcClient u5c, BlockPoint point)
+    {
+        CancellationToken ct = CancellationToken.None;
+        int events = 0;
+        await foreach (FollowTipEvent e in u5c.V1Beta.Sync.FollowTipAsync(point, cancellationToken: ct))
+        {
+            if (++events == 5) break;
+        }
+    }
+
     internal static async Task GeneratedCallsAsync(string[] args, CancellationToken ct)
     {
         string url = args.Length > 0 ? args[0] : "http://localhost:50051";
@@ -19,12 +31,12 @@ internal static class ReadmeSamples
         Beta.Sync.FetchBlockResponse block = await u5c.V1Beta.Sync.FetchBlockAsync(
             new() { Ref = { response.Tip }, FieldMask = new() { Paths = { "native_bytes" } } },
             cancellationToken: ct);
-        int events = 0;
+        int generatedEvents = 0;
         await foreach (Beta.Sync.FollowTipResponse update in
             u5c.V1Beta.Sync.FollowTip(new() { Intersect = { response.Tip } }, cancellationToken: ct).ReadAllAsync())
         {
             Console.WriteLine(update.ActionCase);
-            if (++events == 3)
+            if (++generatedEvents == 3)
             {
                 break;
             }
@@ -100,6 +112,13 @@ internal static class ReadmeSamples
         await foreach (WatchTxEvent _ in client.V1Beta.Watch.WatchTxAsync(delegations, [point, olderPoint], cancellationToken: cancellationToken)) break;
         Beta.Watch.TxPredicate touches = Beta.Watch.TxPredicate.Produces(paymentPart: paymentKeyHash, policyId: policyId);
         await foreach (WatchTxEvent _ in client.V1Beta.Watch.WatchTxAsync(touches, cancellationToken: cancellationToken)) break;
+    }
+
+    internal static void NamedHealthCheck(WebApplicationBuilder builder)
+    {
+        builder.Services.AddHealthChecks().Add(new HealthCheckRegistration("preprod",
+            provider => new UtxorpcHealthCheck(provider.GetRequiredKeyedService<UtxorpcClient>("preprod")),
+            null, null, TimeSpan.FromSeconds(5)));
     }
 
     internal static async Task TestingAsync()
