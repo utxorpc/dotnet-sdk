@@ -35,19 +35,15 @@ internal static class ReadmeSamples
         ReadOnlyMemory<byte> signedTx, ReadOnlyMemory<byte> paymentKeyHash, ReadOnlyMemory<byte> policyId,
         ReadOnlyMemory<byte> poolId, BlockPoint point, BlockPoint olderPoint, CancellationToken cancellationToken)
     {
-        // Fetch only native block bytes.
         FieldMask bytesOnly = FieldMask.FromFieldNumbers<Beta.Sync.AnyChainBlock>(Beta.Sync.AnyChainBlock.NativeBytesFieldNumber);
         FieldMask headerOnly = FieldMask.FromString<Beta.Sync.AnyChainBlock>("cardano.header");
         await client.V1Beta.Sync.FetchBlockAsync(point, bytesOnly, cancellationToken);
-        // Match outputs by payment key hash and asset policy.
         await foreach (Beta.Query.AnyUtxoData output in client.V1Beta.Query.SearchAllUtxosAsync(
             Beta.Query.UtxoPredicate.Match(paymentPart: paymentKeyHash, policyId: policyId), cancellationToken: cancellationToken))
             Console.WriteLine(output.NativeBytes.Length);
 
-        // Disable compression when a browser cannot read the server's Grpc-Encoding header.
         UtxorpcClientOptions browserOptions = new() { Url = url, ConfigureChannel = o => o.CompressionProviders = [] };
 
-        // Configure a client that creates its own channel.
         UtxorpcClientOptions options = new() { Url = url, MaxAttempts = 1, KeepAliveInterval = Timeout.InfiniteTimeSpan };
         if (apiKey is not null) options.Headers["dmtr-api-key"] = apiKey;
         using UtxorpcClient configured = new(options);
@@ -62,7 +58,6 @@ internal static class ReadmeSamples
             Console.WriteLine(e.Detail);
         }
 
-        // Give every unary call without its own deadline a timeout, retries included.
         UtxorpcClientOptions timed = new() { Url = url, DefaultTimeout = TimeSpan.FromSeconds(30) };
         using UtxorpcClient timedClient = new(timed);
         try
@@ -90,7 +85,6 @@ internal static class ReadmeSamples
         };
         using UtxorpcClient resumable = new(resuming);
 
-        // Share named clients through dependency injection.
         ServiceCollection services = new();
         services.AddUtxorpcClient("preprod", o => o.Url = url);
         services.AddSingleton(new Uri(url));
@@ -98,15 +92,12 @@ internal static class ReadmeSamples
         using ServiceProvider provider = services.BuildServiceProvider();
         UtxorpcClient preprod = provider.GetRequiredKeyedService<UtxorpcClient>("preprod");
 
-        // Read every retained history page from the snapshot's tip.
         await foreach (Beta.Sync.AnyChainBlock historicalBlock in client.V1Beta.Sync.DumpAllHistoryAsync(
             point, pageSize: 10, fieldMask: bytesOnly, cancellationToken: cancellationToken))
             Console.WriteLine(historicalBlock.NativeBytes.Length);
-        // Match stake delegations to a pool, starting at one of the intersection candidates.
         Beta.Watch.TxPredicate delegations = Beta.Watch.TxPredicate.HasCertificate(
             Beta.Cardano.CertificatePattern.StakeDelegation(poolKeyhash: poolId));
         await foreach (WatchTxEvent _ in client.V1Beta.Watch.WatchTxAsync(delegations, [point, olderPoint], cancellationToken: cancellationToken)) break;
-        // An address and asset in the same output.
         Beta.Watch.TxPredicate touches = Beta.Watch.TxPredicate.Produces(paymentPart: paymentKeyHash, policyId: policyId);
         await foreach (WatchTxEvent _ in client.V1Beta.Watch.WatchTxAsync(touches, cancellationToken: cancellationToken)) break;
     }

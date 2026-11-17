@@ -31,6 +31,12 @@ Requires .NET 11: the package targets net11.0 only and depends on Utxorpc.Spec 0
 Read the tip, fetch its block, then follow the chain from there. `url` and `apiKey` come from the environment and `ct` is a cancellation token; the whole program is `examples/Sync`.
 
 ```csharp
+using System.Diagnostics;
+using Google.Protobuf.WellKnownTypes;
+using Utxorpc.Sdk;
+using Utxorpc.Sdk.V1Beta;
+using Utxorpc.V1Beta.Sync;
+using Beta = Utxorpc.V1Beta;
 Dictionary<string, string>? headers = apiKey is null ? null : new() { ["dmtr-api-key"] = apiKey };
 using UtxorpcClient u5c = new(url, headers);
 Beta.Sync.BlockRef tip = (await u5c.V1Beta.Sync.ReadTipAsync(ct)).Tip;
@@ -53,6 +59,7 @@ await foreach (FollowTipEvent e in u5c.V1Beta.Sync.FollowTipAsync(point, cancell
 The generated calls take the Spec's requests and are always there, using the same connected `u5c` and cancellation token `ct`:
 
 ```csharp
+using Alpha = Utxorpc.V1Alpha;
 Beta.Sync.ReadTipResponse response = await u5c.V1Beta.Sync.ReadTipAsync(new(), cancellationToken: ct);
 Alpha.Sync.ReadTipResponse oldTip = await u5c.V1Alpha.Sync.ReadTipAsync(new(), cancellationToken: ct);
 Beta.Sync.FetchBlockResponse block = await u5c.V1Beta.Sync.FetchBlockAsync(
@@ -96,7 +103,7 @@ This creates the Worker example as your own project, referencing this package.
 
 ## Short methods
 
-Use `using Utxorpc.Sdk;`. Names and parameters match in both versions unless marked. `m` is an optional `FieldMask`; every method ends with an optional `CancellationToken`. Raw calls take the corresponding Spec request.
+Use `using Utxorpc.Sdk;`. The short methods are in `V1AlphaQueryExtensions`, `V1AlphaSubmitExtensions`, `V1AlphaSyncExtensions`, `V1AlphaWatchExtensions` and their v1beta counterparts, `V1BetaQueryExtensions`, `V1BetaSubmitExtensions`, `V1BetaSyncExtensions`, `V1BetaWatchExtensions`. Names and parameters match in both versions unless marked. `m` is an optional `FieldMask`; every method ends with an optional `CancellationToken`. Raw calls take the corresponding Spec request.
 
 | Service | Short method | Returns | Raw call |
 |---|---|---|---|
@@ -122,7 +129,7 @@ Use `using Utxorpc.Sdk;`. Names and parameters match in both versions unless mar
 
 `references` is a `ReadOnlySpan<OutputReference>` (`new OutputReference(txHash, index)`); `point` is a `BlockPoint` (`new BlockPoint(slot, hash)`). Hashes, addresses and transaction bytes are `ReadOnlyMemory<byte>`; `datumHashes` is a `ReadOnlySpan<ReadOnlyMemory<byte>>`. A null predicate in `WatchTxAsync` or `WatchMempoolAsync` sends no filter; null `from` sends no start point. `points` and `intersect` are `ReadOnlySpan<BlockPoint>`, `txHashes` a `ReadOnlySpan<ReadOnlyMemory<byte>>`: write `[a, b]`, or pass an array or a span; values are sent in order, and the server finds the intersection among the points. `BlockPoint` and `OutputReference` compare by value (their bytes, not the array), so they work as `HashSet` and dictionary keys; do not change the bytes while they are keys.
 
-`SearchAllUtxosAsync` and `SearchUtxosByAddressAsync` read every page: page size 0 lets the server choose; a negative size throws. `DumpAllHistoryAsync` requires a page size of at least 1; Dolos accepts at most 100. On preprod, 10 blocks were about 0.7–0.8 MB with the parsed form, or 0.09 MB with `native_bytes` only. A page is one message: keep it under the 4 MB receive limit, use a mask, or raise the limit (see Message size). The server decides whether to include the block at `from`.
+`SearchAllUtxosAsync` and `SearchUtxosByAddressAsync` read every page: page size 0 lets the server choose; a negative size throws. `DumpAllHistoryAsync` requires a page size of at least 1; see [Server compatibility](#server-compatibility) for tested limits and page sizes. A page is one message: keep it under the 4 MB receive limit, use a mask, or raise the limit (see Message size). The server decides whether to include the block at `from`.
 
 The package includes two compiler warnings:
 
@@ -208,11 +215,11 @@ await foreach (WatchTxEvent _ in client.V1Beta.Watch.WatchTxAsync(touches, cance
 
 `AllOf`, `AnyOf` and `Not` build the Spec's composite predicates; see [Server compatibility](#server-compatibility) for tested server support.
 
-Byte memory in a predicate is wrapped, not copied; do not change it while the predicate is in use. Empty parts mean no constraint; a wholly empty address or asset throws `ArgumentException`. An empty asset name matches any name; for an exact empty name use the v1beta Spec pattern with `AssetName = ByteString.Empty` (v1alpha cannot express it). Every match type of the Spec has a builder; a hand-built Spec message fits wherever a built one does.
+Byte memory in a predicate is wrapped, not copied; do not change it while the predicate is in use. Empty parts mean no constraint; a wholly empty address or asset throws `ArgumentException`. An empty asset name matches any name; for an exact empty name use the v1beta Spec pattern with `AssetName = ByteString.Empty` (v1alpha cannot express it). Every match type of the Spec has a builder; a hand-built Spec message fits wherever a built one does. Certificate builders are in `V1AlphaCardanoExtensions` and `V1BetaCardanoExtensions`.
 
 ## Both versions
 
-Use v1beta for new code, or v1alpha for servers that have not moved. `u5c.V1Beta` and `u5c.V1Alpha` share one channel; each offers `Query`, `Submit`, `Sync` and `Watch`. `ReadState` exists only in v1beta.
+Use v1beta for new code, or v1alpha for servers that have not moved. `u5c.V1Beta` (`V1BetaClients`) and `u5c.V1Alpha` (`V1AlphaClients`) share one channel; each offers `Query`, `Submit`, `Sync` and `Watch`. `ReadState` exists only in v1beta.
 
 ## Connecting
 
@@ -220,7 +227,6 @@ Use `new UtxorpcClient(url, headers)` or the options constructor. Retry and keep
 
 ```csharp
 UtxorpcClientOptions options = new() { Url = url, MaxAttempts = 1, KeepAliveInterval = Timeout.InfiniteTimeSpan };
-UtxorpcClientOptions timed = new() { Url = url, DefaultTimeout = TimeSpan.FromSeconds(30) };
 if (apiKey is not null) options.Headers["dmtr-api-key"] = apiKey;
 using UtxorpcClient configured = new(options);
 ```
@@ -263,7 +269,7 @@ using ServiceProvider provider = services.BuildServiceProvider();
 UtxorpcClient preprod = provider.GetRequiredKeyedService<UtxorpcClient>("preprod");
 ```
 
-`AddUtxorpcClient(o => …)` gives one shared client, disposed with the container. Inside the delegate, bind configuration with `GetSection("Utxorpc").Bind(o)`. Use `AddUtxorpcClient("preprod", …)` for a named client and inject it with `[FromKeyedServices("preprod")]`. Keep API keys out of logs and source; use configuration or user secrets.
+`AddUtxorpcClient(o => …)`, from `UtxorpcServiceCollectionExtensions`, gives one shared client, disposed with the container. Inside the delegate, bind configuration with `GetSection("Utxorpc").Bind(o)`. Use `AddUtxorpcClient("preprod", …)` for a named client and inject it with `[FromKeyedServices("preprod")]`. Set `DMTR_API_KEY` in the environment; keep keys out of files and logs.
 
 `AddUtxorpcClient((provider, o) => …)` configures from other services (settings, a handler the container owns and disposes). In a console app, add the `Microsoft.Extensions.DependencyInjection` package for `BuildServiceProvider`.
 
@@ -288,24 +294,20 @@ The check reads the v1beta tip, falling back to v1alpha when v1beta is unsupport
 ### In the browser (Blazor WebAssembly)
 
 The client works in Blazor WebAssembly with no setting: it uses binary gRPC-Web there, including streams.
-The server must speak gRPC-Web and allow the page's origin; Dolos and Dingo do by default.
+The server must speak gRPC-Web and allow the page's origin; see [Server compatibility](#server-compatibility).
+See [Errors](#errors) for how browser failures are reported.
 
 `KeepAliveInterval` and the connect timeout do not apply in a browser, which offers neither.
 A deadline or `DefaultTimeout` is the only limit on a unary call that gets no answer.
 
-A server that cannot be reached or refuses the page's origin is reported by gRPC as `Internal`;
-the browser does not say which, so `MaxAttempts` does not retry it.
-Its `Kind` is `Unavailable` and `IsTransient` is true, so FollowTip and WatchTx reconnect when `ResumeOnFailure` is enabled.
 An https page can call only https servers (localhost excepted).
 
-Dingo v0.94.1 compresses answers of 1 KiB and more, but its CORS setup hides the header that says so.
-Calls with such answers, for example `ReadParamsAsync` and `FollowTipAsync`, fail there with `Internal` until the caller turns compression off:
+If a browser cannot read a server's compressed answers (see [Server compatibility](#server-compatibility)), stop the client offering compression:
 
 ```csharp
 UtxorpcClientOptions browserOptions = new() { Url = url, ConfigureChannel = o => o.CompressionProviders = [] };
 ```
 
-Hosted endpoints that need an API key in a header (for example Demeter) were not verified from a browser.
 Any API key a page sends is visible to the page's users.
 
 The sample in `examples/Browser` shows the tip and incoming blocks, with a "No compression" tick box.
@@ -318,7 +320,7 @@ dotnet run --project examples/Browser
 
 ## Streams and cancellation
 
-Every call takes a `CancellationToken`. `ReadAllAsync()` reads a raw server stream and ends the call when the loop ends or is left. The short stream methods send nothing until the loop starts, and each loop opens its own call: looping the same sequence again starts a new stream.
+Every call takes a `CancellationToken`. `ReadAllAsync()`, from `ServerStreamingCallExtensions`, reads a raw server stream and ends the call when the loop ends or is left. The short stream methods send nothing until the loop starts, and each loop opens its own call: looping the same sequence again starts a new stream.
 
 ### Resuming a broken stream
 
@@ -335,7 +337,7 @@ UtxorpcClientOptions resuming = new()
 using UtxorpcClient resumable = new(resuming);
 ```
 
-A reconnect does not yield an event a second time; a server's own repeats still pass through. Dolos can itself repeat the tip block, so WatchTx can yield its matching transactions twice; a payment watcher should de-duplicate by transaction hash. If the chain rolled back while disconnected, FollowTip yields one `Reset` to the chosen point; WatchTx yields `Undo` events for transactions removed, newest first, before the new events.
+A reconnect does not yield an event a second time; a server's own repeats still pass through (see [Server compatibility](#server-compatibility)). A payment watcher should de-duplicate by transaction hash. If the chain rolled back while disconnected, FollowTip yields one `Reset` to the chosen point; WatchTx yields `TxUndone` events for transactions removed, newest first, before the new events.
 
 Only transient failures resume (see `UtxorpcException.IsTransient`). `ResumeAttempts` counts reconnect attempts in a row: 10 by default, starting again only when a new event arrives, not on a skipped replay. Waits start at 1 second, grow by 1.6 to 120 seconds, and each varies by ±20%, so no wait exceeds 144 seconds. Ten attempts mean about 3 minutes of waiting.
 
@@ -361,13 +363,13 @@ await foreach (NextResponse r in syncClient.FollowTipAsync(blockRef, cancellatio
     }
 ```
 
-Now, in 2.0.0-alpha, use the `FollowTipEvent` switch expression in Quick start. `BlockApplied.Block` and `BlockUndone.Block` hold blocks; `Reset.Point` holds the reset point. `e.Tip` is FollowTip's tip; `e.Response` is the Spec message. Read `WatchTxEvent` the same way, with `TxApplied.Tx`, `TxUndone.Tx` and `Idle.Point`.
+Now, use the `FollowTipEvent` switch expression in Quick start. `BlockApplied.Block` and `BlockUndone.Block` hold blocks; `Reset.Point` holds the reset point. `e.Tip` is FollowTip's tip; `e.Response` is the Spec message. Read `WatchTxEvent` the same way, with `TxApplied.Tx`, `TxUndone.Tx` and `Idle.Point`.
 
 The generated call (`u5c.V1Beta.Sync.FollowTip(new() { … }).ReadAllAsync()`) still yields Spec messages. A message without an action this SDK knows ends the short stream with `InvalidOperationException`.
 
 ## Errors
 
-Short methods throw `UtxorpcException` with a `Kind`, the server's `Detail` and the original gRPC error as `InnerException`:
+See [Server compatibility](#server-compatibility) for tested server support. Short methods throw `UtxorpcException` with a `Kind`, the server's `Detail` and the original gRPC error as `InnerException`:
 
 ```csharp
 ReadOnlyMemory<byte> tx = signedTx;
@@ -396,6 +398,10 @@ catch (UtxorpcException e) when (e.Kind == UtxorpcErrorKind.InvalidTx)
 On a channel the SDK creates, cancellation stays `OperationCanceledException`. A caller-supplied channel, or a hook that turns `ThrowOperationCanceledOnCancellation` off, reports gRPC's `Cancelled`, typed `Other` by short methods.
 
 On `SubmitTxAsync` and `EvalTxAsync` only, an `Unknown` answer reads `InvalidTx` because one server answers every rejected transaction that way. `StatusCode` always keeps the server's original code.
+
+In a browser, a server that cannot be reached or refuses the page's origin is reported by gRPC as `Internal`; the browser does not say which, so `MaxAttempts` does not retry it. Its `Kind` is `Unavailable` and `IsTransient` is true, so FollowTip and WatchTx reconnect when `ResumeOnFailure` is enabled.
+
+Compressed gRPC-Web answers from Dingo v0.94.1 fail in a browser with `Internal` (`Kind.Other`, not transient); turn compression off as shown in [In the browser](#in-the-browser-blazor-webassembly).
 
 A short method that waits for the network allocates 112 B more (Release) for the typed error; an answer already there costs nothing.
 
@@ -477,6 +483,12 @@ Checked on 2026-11-18 on preprod, with v1alpha and v1beta alike (ReadState exist
 
 - ¹ Put the address and the asset in one match instead.
 
+Seen on Dolos v1.6.3 and Dingo v0.94.1, not checked by the live tests:
+
+Dolos accepts `DumpHistory` pages of at most 100 blocks. On preprod, 10 blocks were about 0.7–0.8 MB with the parsed form, or 0.09 MB with `native_bytes` only. Dolos can repeat the tip block, so WatchTx can yield its matching transactions twice.
+
+Dolos and Dingo accept gRPC-Web and allow cross-origin calls by default. Dingo compresses answers of 1 KiB and more, but its CORS setup hides `Grpc-Encoding`; disable compression in a browser (see [In the browser](#in-the-browser-blazor-webassembly)). Hosted endpoints that need an API key in a header (for example Demeter) were not verified from a browser.
+
 ## Migrating from 1.8.0-alpha
 
 `X` means `client.V1Alpha` or `client.V1Beta`; messages are the Spec's `Utxorpc.V1Alpha.*` or `Utxorpc.V1Beta.*`, and stream events are the SDK's `Utxorpc.Sdk.V1Alpha` or `Utxorpc.Sdk.V1Beta`. `m` is an optional `FieldMask`, and `ct` is a token. See Stream events for the before-and-after code.
@@ -485,7 +497,7 @@ Checked on 2026-11-18 on preprod, with v1alpha and v1beta alike (ReadState exist
 |---|---|
 | `new QueryServiceClient(url, headers)`, `SubmitServiceClient`, `SyncServiceClient`, `WatchServiceClient` | One `new UtxorpcClient(url, headers)` (or `new UtxorpcClient(new UtxorpcClientOptions { … })`, or `services.AddUtxorpcClient(…)`); use `X.Query`, `X.Submit`, `X.Sync`, `X.Watch`; dispose it at shutdown. An empty or blank URL throws `ArgumentException`; with `AddUtxorpcClient`, it throws `OptionsValidationException` at host start (or first resolve without a host). |
 | `ReadUtxosAsync(TxoRef[] keys, FieldMask?)` | `X.Query.ReadUtxosAsync([new(txHash, index)], m, ct)` |
-| `SearchUtxosAsync(Predicate, uint maxItems, FieldMask?, string? start_token)` | `X.Query.SearchAllUtxosAsync(predicate, pageSize, m, ct)` reads every page; one page: the raw `SearchUtxosAsync(new() { … })`, where an empty `NextToken` ends the pages (v1beta: absent or empty, so test `string.IsNullOrEmpty(response.NextToken)`; Dolos sends a present empty one). |
+| `SearchUtxosAsync(Predicate, uint maxItems, FieldMask?, string? start_token)` | `X.Query.SearchAllUtxosAsync(predicate, pageSize, m, ct)` reads every page; one page: the raw `SearchUtxosAsync(new() { … })`, where an empty `NextToken` ends the pages (v1beta: absent or empty, so test `string.IsNullOrEmpty(response.NextToken)`). |
 | `ReadParamsAsync(FieldMask?)`, `ReadGenesisAsync`, `ReadEraSummaryAsync` | `X.Query.ReadParamsAsync(m, ct)`, `ReadGenesisAsync(m, ct)`, `ReadEraSummaryAsync(m, ct)`; `Values.Cardano` is a typed `PParams`. |
 | `SubmitTxAsync(Tx[] txs)` | `X.Submit.SubmitTxAsync(txBytes, ct)` once per transaction; read `.Ref`. |
 | `WatchMempoolAsync(Predicate, FieldMask?, ct)` | `X.Submit.WatchMempoolAsync(TxPredicate.HasAddress(…), m, ct)`; `WatchMempoolAsync()` sends no predicate. |
@@ -564,7 +576,7 @@ No automated browser test runs; before a release, build and run the sample again
 dotnet test --filter "Category=Unit"
 ```
 
-Unit tests need no server. For live tests, set `UTXORPC_URL` and optional `UTXORPC_HEADERS` (`name=value;name=value`). `UTXORPC_SERVER` is `dolos` by default, or `dingo`:
+Unit tests need no server. CI and the release workflow also run `./templates/test.sh` to check the worker template and both packages. Live tests check [Server compatibility](#server-compatibility). For live tests, set `UTXORPC_URL` and optional `UTXORPC_HEADERS` (`name=value;name=value`). `UTXORPC_SERVER` is `dolos` by default, or `dingo`:
 
 ```bash
 dotnet test --filter "Category=Live"
