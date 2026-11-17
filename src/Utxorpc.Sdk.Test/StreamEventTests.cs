@@ -19,13 +19,18 @@ public sealed class StreamEventTests
         .Where(constructor => constructor.GetParameters().Length == 1)
         .Select(constructor => constructor.GetParameters()[0].ParameterType).ToArray();
 
-    private static Diagnostic[] Compile(string members)
+    internal static IEnumerable<MetadataReference> CompilationReferences()
     {
         string? platforms = AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string;
         Assert.False(string.IsNullOrEmpty(platforms), "The test host must supply its trusted platform assemblies.");
+        return platforms.Split(Path.PathSeparator).Select(path => MetadataReference.CreateFromFile(path));
+    }
+
+    private static Diagnostic[] Compile(string members)
+    {
         CSharpCompilation compilation = CSharpCompilation.Create("UnionCheck",
             [CSharpSyntaxTree.ParseText("#nullable enable\nstatic class C { " + members + " }", new CSharpParseOptions(LanguageVersion.CSharp15))],
-            platforms.Split(Path.PathSeparator).Select(path => MetadataReference.CreateFromFile(path)),
+            CompilationReferences(),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable)
                 .WithSpecificDiagnosticOptions(new Dictionary<string, ReportDiagnostic> { ["CS1701"] = ReportDiagnostic.Suppress, ["CS1702"] = ReportDiagnostic.Suppress }));
         return compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity is DiagnosticSeverity.Warning or DiagnosticSeverity.Error).ToArray();

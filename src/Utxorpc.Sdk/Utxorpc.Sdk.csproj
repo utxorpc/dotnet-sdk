@@ -34,4 +34,10 @@
     <None Include="../../README.md" pack="true" PackagePath="." />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../Utxorpc.Sdk.Analyzers/Utxorpc.Sdk.Analyzers.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <ProjectReference Include="../Utxorpc.Sdk.CodeFixes/Utxorpc.Sdk.CodeFixes.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <None Include="../Utxorpc.Sdk.Analyzers/bin/$(Configuration)/netstandard2.0/Utxorpc.Sdk.Analyzers.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="../Utxorpc.Sdk.CodeFixes/bin/$(Configuration)/netstandard2.0/Utxorpc.Sdk.CodeFixes.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+  </ItemGroup>
 </Project>

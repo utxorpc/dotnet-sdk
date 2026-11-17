@@ -4,6 +4,7 @@
 
 ### Added
 
+- Compiler warnings for null requests and bare `new(…)` on generated calls, with the “Use the short method” code fix.
 - `UtxorpcClient` with v1alpha and v1beta clients for every RPC.
 - Short methods for every RPC, with the same names in both versions.
 - `OutputReference` and `BlockPoint` inputs, compared by value (their bytes, not the array), and paging across UTxOs and history.

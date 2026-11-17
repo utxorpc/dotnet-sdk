@@ -118,9 +118,15 @@ Use `using Utxorpc.Sdk;`. Names and parameters match in both versions unless mar
 
 `SearchAllUtxosAsync` and `SearchUtxosByAddressAsync` read every page: page size 0 lets the server choose; a negative size throws. `DumpAllHistoryAsync` requires a page size of at least 1; Dolos accepts at most 100. On preprod, 10 blocks were about 0.7–0.8 MB with the parsed form, or 0.09 MB with `native_bytes` only. A page is one message: keep it under the 4 MB receive limit, use a mask, or raise the limit (see Message size). The server decides whether to include the block at `from`.
 
-- Write the types in `new BlockPoint(slot, hash)` and `new Cardano.StateQuery { … }`: a bare `new(…)` selects the generated call.
-- When skipping a mask, name the token: `cancellationToken: ct`.
-- Never pass a literal `null` or bare `default` first to a unary short method: a generated overload takes it as a null request, which throws `ArgumentNullException` at once (including `ReadTipAsync(default)`). Name the input (`fieldMask: null`, `cancellationToken: ct`) or give its type instead.
+The package includes two compiler warnings:
+
+- `UTXORPC001`: a null or default request argument, such as `ReadTipAsync(default)` or `ReadParamsAsync(null)`, selects the generated call and throws `ArgumentNullException`.
+- `UTXORPC002`: a bare `new(…)` with arguments, such as `FetchBlockAsync(new(slot, hash))`, selects the generated call. Write `new BlockPoint(slot, hash)` instead.
+
+The “Use the short method” fix is offered only when the rewrite binds to a short method and adds no compiler errors in the document.
+To turn one warning off, set `dotnet_diagnostic.UTXORPC001.severity = none` in `.editorconfig`.
+Neither warning covers a token in the mask's place (`FetchBlockAsync(point, ct)`: name it `cancellationToken: ct`) or a bare `new() { … }` for a `Cardano.StateQuery` (write `new Cardano.StateQuery { … }`).
+
 - Byte inputs are wrapped without copying. Do not change their memory until the task completes or enumeration ends.
 - Use the raw call for per-call headers and deadlines, or any other request fields.
 
