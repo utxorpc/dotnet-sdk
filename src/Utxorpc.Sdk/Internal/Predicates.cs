@@ -19,6 +19,11 @@ internal static class Predicates
         }
     }
 
+    internal static ByteString Wrap(ReadOnlyMemory<byte> part) => part.IsEmpty ? ByteString.Empty : UnsafeByteOperations.UnsafeWrap(part);
+
+    internal static ByteString Required(ReadOnlyMemory<byte> part, string parameterName) =>
+        part.IsEmpty ? throw new ArgumentException(EmptyPartsMessage, parameterName) : UnsafeByteOperations.UnsafeWrap(part);
+
     internal static Alpha.AddressPattern V1AlphaAddress(ReadOnlyMemory<byte> exactAddress, ReadOnlyMemory<byte> paymentPart, ReadOnlyMemory<byte> delegationPart)
     {
         if (exactAddress.IsEmpty && paymentPart.IsEmpty && delegationPart.IsEmpty)
@@ -40,6 +45,18 @@ internal static class Predicates
         return result;
     }
 
+    internal static Alpha.TxOutputPattern V1AlphaOutput(ReadOnlyMemory<byte> exactAddress, ReadOnlyMemory<byte> paymentPart, ReadOnlyMemory<byte> delegationPart, ReadOnlyMemory<byte> policyId, ReadOnlyMemory<byte> assetName)
+    {
+        bool address = !exactAddress.IsEmpty || !paymentPart.IsEmpty || !delegationPart.IsEmpty;
+        bool asset = !policyId.IsEmpty || !assetName.IsEmpty;
+        if (!address && !asset)
+            throw new ArgumentException(EmptyPartsMessage, nameof(exactAddress) + ", " + nameof(paymentPart) + ", " + nameof(delegationPart) + ", " + nameof(policyId) + ", " + nameof(assetName));
+        Alpha.TxOutputPattern result = new();
+        if (address) result.Address = V1AlphaAddress(exactAddress, paymentPart, delegationPart);
+        if (asset) result.Asset = V1AlphaAsset(policyId, assetName);
+        return result;
+    }
+
     internal static Beta.AddressPattern V1BetaAddress(ReadOnlyMemory<byte> exactAddress, ReadOnlyMemory<byte> paymentPart, ReadOnlyMemory<byte> delegationPart)
     {
         if (exactAddress.IsEmpty && paymentPart.IsEmpty && delegationPart.IsEmpty)
@@ -58,6 +75,18 @@ internal static class Predicates
         Beta.AssetPattern result = new();
         if (!policyId.IsEmpty) result.PolicyId = UnsafeByteOperations.UnsafeWrap(policyId);
         if (!assetName.IsEmpty) result.AssetName = UnsafeByteOperations.UnsafeWrap(assetName);
+        return result;
+    }
+
+    internal static Beta.TxOutputPattern V1BetaOutput(ReadOnlyMemory<byte> exactAddress, ReadOnlyMemory<byte> paymentPart, ReadOnlyMemory<byte> delegationPart, ReadOnlyMemory<byte> policyId, ReadOnlyMemory<byte> assetName)
+    {
+        bool address = !exactAddress.IsEmpty || !paymentPart.IsEmpty || !delegationPart.IsEmpty;
+        bool asset = !policyId.IsEmpty || !assetName.IsEmpty;
+        if (!address && !asset)
+            throw new ArgumentException(EmptyPartsMessage, nameof(exactAddress) + ", " + nameof(paymentPart) + ", " + nameof(delegationPart) + ", " + nameof(policyId) + ", " + nameof(assetName));
+        Beta.TxOutputPattern result = new();
+        if (address) result.Address = V1BetaAddress(exactAddress, paymentPart, delegationPart);
+        if (asset) result.Asset = V1BetaAsset(policyId, assetName);
         return result;
     }
 }

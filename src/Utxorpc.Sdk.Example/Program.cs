@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,36 +22,15 @@ using UtxorpcClient u5c = new(url, headers);
 
 try
 {
-    // Read the tip through both versions on the same channel.
-    Beta.Sync.ReadTipResponse tip = await u5c.V1Beta.Sync.ReadTipAsync(new(), cancellationToken: cancellation.Token);
+    // Use plain .NET inputs through both versions on the same channel.
+    Beta.Sync.ReadTipResponse tip = await u5c.V1Beta.Sync.ReadTipAsync(cancellation.Token);
     Console.WriteLine($"v1beta: {tip.Tip.Slot} {Convert.ToHexString(tip.Tip.Hash.Span)}");
-    Alpha.Sync.ReadTipResponse oldTip = await u5c.V1Alpha.Sync.ReadTipAsync(new(), cancellationToken: cancellation.Token);
+    Alpha.Sync.ReadTipResponse oldTip = await u5c.V1Alpha.Sync.ReadTipAsync(cancellation.Token);
     Console.WriteLine($"v1alpha: {oldTip.Tip.Slot} {Convert.ToHexString(oldTip.Tip.Hash.Span)}");
-
-    // Fetch only the tip block's native bytes.
     Beta.Sync.FetchBlockResponse block = await u5c.V1Beta.Sync.FetchBlockAsync(
-        new() { Ref = { tip.Tip }, FieldMask = new() { Paths = { "native_bytes" } } },
-        cancellationToken: cancellation.Token);
+        new BlockPoint(tip.Tip.Slot, tip.Tip.Hash.Memory), FieldMask.FromString("native_bytes"), cancellation.Token);
     Console.WriteLine($"Block bytes: {block.Block[0].NativeBytes.Length}");
-
-    // Follow the tip, leaving after three events to close the stream.
     int events = 0;
-    await foreach (Beta.Sync.FollowTipResponse response in
-        u5c.V1Beta.Sync.FollowTip(new() { Intersect = { tip.Tip } }, cancellationToken: cancellation.Token).ReadAllAsync())
-    {
-        Console.WriteLine(response.ActionCase);
-        if (++events == 3)
-        {
-            break;
-        }
-    }
-
-    // Use plain .NET inputs for the same synchronization calls.
-    tip = await u5c.V1Beta.Sync.ReadTipAsync(cancellation.Token);
-    Console.WriteLine($"Tip: {tip.Tip.Slot} {Convert.ToHexString(tip.Tip.Hash.Span)}");
-    block = await u5c.V1Beta.Sync.FetchBlockAsync(new BlockPoint(tip.Tip.Slot, tip.Tip.Hash.Memory), cancellationToken: cancellation.Token);
-    Console.WriteLine($"Block bytes: {block.Block[0].NativeBytes.Length}");
-    events = 0;
     await foreach (FollowTipEvent e in
         u5c.V1Beta.Sync.FollowTipAsync(new BlockPoint(tip.Tip.Slot, tip.Tip.Hash.Memory), cancellationToken: cancellation.Token))
     {
@@ -58,8 +38,28 @@ try
         {
             BlockApplied a => $"Apply: {a.Block.NativeBytes.Length} bytes",
             BlockUndone u => $"Undo: {u.Block.NativeBytes.Length} bytes",
-            Reset r => $"Reset: {r.Point.Slot}"
+            Reset r => $"Reset: {r.Point.Slot}",
+            null => throw new UnreachableException()
         });
+        if (++events == 3)
+        {
+            break;
+        }
+    }
+
+    // Generated calls take the Spec requests directly.
+    tip = await u5c.V1Beta.Sync.ReadTipAsync(new(), cancellationToken: cancellation.Token);
+    Console.WriteLine($"Tip: {tip.Tip.Slot} {Convert.ToHexString(tip.Tip.Hash.Span)}");
+    oldTip = await u5c.V1Alpha.Sync.ReadTipAsync(new(), cancellationToken: cancellation.Token);
+    block = await u5c.V1Beta.Sync.FetchBlockAsync(
+        new() { Ref = { tip.Tip }, FieldMask = new() { Paths = { "native_bytes" } } },
+        cancellationToken: cancellation.Token);
+    Console.WriteLine($"Block bytes: {block.Block[0].NativeBytes.Length}");
+    events = 0;
+    await foreach (Beta.Sync.FollowTipResponse response in
+        u5c.V1Beta.Sync.FollowTip(new() { Intersect = { tip.Tip } }, cancellationToken: cancellation.Token).ReadAllAsync())
+    {
+        Console.WriteLine(response.ActionCase);
         if (++events == 3)
         {
             break;
@@ -76,7 +76,7 @@ _ = nameof(OtherCallsAsync);
 
 static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient client, ReadOnlyMemory<byte> address, ReadOnlyMemory<byte> txHash,
     ReadOnlyMemory<byte> signedTx, ReadOnlyMemory<byte> datumHash, ReadOnlyMemory<byte> paymentKeyHash,
-    ReadOnlyMemory<byte> policyId, CancellationToken cancellationToken)
+    ReadOnlyMemory<byte> policyId, ReadOnlyMemory<byte> poolId, BlockPoint olderPoint, CancellationToken cancellationToken)
 {
     Beta.Query.ReadParamsResponse parameters = await client.V1Beta.Query.ReadParamsAsync(cancellationToken: cancellationToken);
     Console.WriteLine(parameters.LedgerTip.Slot);
@@ -92,8 +92,7 @@ static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient clie
     }
     // Match outputs by payment key hash and asset policy.
     await foreach (Beta.Query.AnyUtxoData output in client.V1Beta.Query.SearchAllUtxosAsync(
-        Beta.Query.UtxoPredicate.AllOf(Beta.Query.UtxoPredicate.Address(paymentPart: paymentKeyHash),
-            Beta.Query.UtxoPredicate.Asset(policyId: policyId)), cancellationToken: cancellationToken))
+        Beta.Query.UtxoPredicate.Match(paymentPart: paymentKeyHash, policyId: policyId), cancellationToken: cancellationToken))
         Console.WriteLine(output.NativeBytes.Length);
     Beta.Query.ReadTxResponse transaction = await client.V1Beta.Query.ReadTxAsync(txHash, cancellationToken: cancellationToken);
     Console.WriteLine(transaction.Tx.NativeBytes.Length);
@@ -111,11 +110,12 @@ static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient clie
     if (apiKey is not null) options.Headers["dmtr-api-key"] = apiKey;
     using UtxorpcClient configured = new(options);
 
-    // Handle deadlines and token cancellation, or raise the receive limit on a new channel.
+    // Give every unary call without its own deadline a timeout, retries included.
+    UtxorpcClientOptions timed = new() { Url = url, DefaultTimeout = TimeSpan.FromSeconds(30) };
+    using UtxorpcClient timedClient = new(timed);
     try
     {
-        Beta.Sync.ReadTipResponse timedTip = await client.V1Beta.Sync.ReadTipAsync(
-            new(), deadline: DateTime.UtcNow.AddSeconds(10), cancellationToken: cancellationToken);
+        Beta.Sync.ReadTipResponse timedTip = await timedClient.V1Beta.Sync.ReadTipAsync(cancellationToken);
         Console.WriteLine(timedTip.Tip.Slot);
     }
     catch (RpcException exception) when (exception.StatusCode == StatusCode.DeadlineExceeded)
@@ -133,6 +133,8 @@ static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient clie
     ServiceCollection services = new();
     services.AddUtxorpcClient(o => o.Url = url);
     services.AddUtxorpcClient("preprod", o => o.Url = url);
+    services.AddSingleton(new Uri(url));
+    services.AddUtxorpcClient("fromServices", (provider, o) => o.Url = provider.GetRequiredService<Uri>().ToString());
     using ServiceProvider provider = services.BuildServiceProvider();
     UtxorpcClient shared = provider.GetRequiredService<UtxorpcClient>();
     UtxorpcClient preprod = provider.GetRequiredKeyedService<UtxorpcClient>("preprod");
@@ -148,11 +150,30 @@ static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient clie
     // Read the current mempool.
     await client.V1Beta.Submit.ReadMempoolAsync(cancellationToken);
     // Watch mempool changes, stopping after the first.
-    await foreach (Beta.Submit.WatchMempoolResponse _ in client.V1Beta.Submit.WatchMempoolAsync(null, cancellationToken: cancellationToken)) break;
+    await foreach (Beta.Submit.WatchMempoolResponse _ in client.V1Beta.Submit.WatchMempoolAsync(cancellationToken: cancellationToken)) break;
     // Read every retained history page from the snapshot's tip.
     await foreach (Beta.Sync.AnyChainBlock historicalBlock in client.V1Beta.Sync.DumpAllHistoryAsync(
         point, pageSize: 10, fieldMask: bytesOnly, cancellationToken: cancellationToken))
         Console.WriteLine(historicalBlock.NativeBytes.Length);
     // Watch chain transactions, stopping after the first.
-    await foreach (WatchTxEvent _ in client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: cancellationToken)) break;
+    await foreach (WatchTxEvent _ in client.V1Beta.Watch.WatchTxAsync(cancellationToken: cancellationToken)) break;
+    // Match stake delegations to a pool, starting at one of the intersection candidates.
+    Beta.Watch.TxPredicate delegations = Beta.Watch.TxPredicate.HasCertificate(
+        Beta.Cardano.CertificatePattern.StakeDelegation(poolKeyhash: poolId));
+    await foreach (WatchTxEvent _ in client.V1Beta.Watch.WatchTxAsync(delegations, [point, olderPoint], cancellationToken: cancellationToken)) break;
+    // An address and asset in the same output.
+    Beta.Watch.TxPredicate touches = Beta.Watch.TxPredicate.Produces(paymentPart: paymentKeyHash, policyId: policyId);
+    await foreach (WatchTxEvent _ in client.V1Beta.Watch.WatchTxAsync(touches, cancellationToken: cancellationToken)) break;
+    await foreach (WatchTxEvent e in client.V1Beta.Watch.WatchTxAsync(cancellationToken: cancellationToken))
+    {
+        Console.WriteLine(e switch
+        {
+            TxApplied a => $"Apply: {a.Tx.Cardano?.Hash.Length}",
+            TxUndone u => $"Undo: {u.Tx.Cardano?.Hash.Length}",
+            Idle i => $"Idle: {i.Point.Slot}",
+            null => throw new UnreachableException()
+        });
+        break;
+    }
+    await foreach (FollowTipEvent _ in client.V1Beta.Sync.FollowTipAsync(cancellationToken: cancellationToken)) break;
 }

@@ -56,18 +56,18 @@ public sealed class LiveServer : IDisposable
     public Task<LiveSample> SampleAsync(CancellationToken cancellationToken) => sample.Value.WaitAsync(cancellationToken);
 
     /// <summary>Finds an output that is unspent now, rechecking the cached transaction first.</summary>
-    public async Task<LiveOutput> FindUnspentOutputAsync(CancellationToken cancellationToken)
+    public async Task<LiveOutput> FindUnspentOutputAsync(CancellationToken cancellationToken, Func<Beta.Cardano.TxOutput, bool>? accept = null)
     {
         using CancellationTokenSource bound = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         bound.CancelAfter(TimeSpan.FromSeconds(180));
         LiveSample known = await SampleAsync(bound.Token);
-        LiveOutput? found = await FindOutputAsync(known.Transaction, bound.Token);
+        LiveOutput? found = await FindOutputAsync(known.Transaction, bound.Token, accept: accept);
         if (found is not null) return found;
         await foreach (V1Beta.WatchTxEvent item in Client.V1Beta.Watch.WatchTxAsync(null, null, cancellationToken: bound.Token))
         {
             if (item is not V1Beta.TxApplied { Tx.Cardano: { } tx }) continue;
             if (IsDingo) await ReadIndexedAsync(tx.Hash, bound.Token);
-            found = await FindOutputAsync(tx, bound.Token);
+            found = await FindOutputAsync(tx, bound.Token, accept: accept);
             if (found is not null) return found;
         }
         throw new InvalidOperationException("WatchTx ended without an unspent output within 180 seconds.");
@@ -113,11 +113,12 @@ public sealed class LiveServer : IDisposable
         }
     }
 
-    private async Task<LiveOutput?> FindOutputAsync(Beta.Cardano.Tx tx, CancellationToken cancellationToken, ByteString? excludedAddress = null)
+    private async Task<LiveOutput?> FindOutputAsync(Beta.Cardano.Tx tx, CancellationToken cancellationToken, ByteString? excludedAddress = null,
+        Func<Beta.Cardano.TxOutput, bool>? accept = null)
     {
         for (int i = tx.Outputs.Count - 1; i >= 0; i--)
         {
-            if (tx.Outputs[i].Address == excludedAddress) continue;
+            if (tx.Outputs[i].Address == excludedAddress || accept is not null && !accept(tx.Outputs[i])) continue;
             OutputReference reference = new(tx.Hash.Memory, (uint)i);
             try
             {

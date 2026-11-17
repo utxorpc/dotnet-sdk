@@ -7,7 +7,7 @@ using FollowTipCall = (Utxorpc.V1Beta.Sync.SyncService.SyncServiceClient Client,
 namespace Utxorpc.Sdk.V1Beta;
 
 /// <summary>One message of the v1beta FollowTip stream: a block to apply, a block to undo, or a point to reset to.</summary>
-/// <remarks>Read it with a switch expression over <see cref="BlockApplied"/>, <see cref="BlockUndone"/> and <see cref="Reset"/>: a missing case is compiler warning CS8509 (a switch statement is not checked), and reading the cases allocates nothing. <see cref="Value"/> boxes.</remarks>
+/// <remarks>Read it with a switch expression over <see cref="BlockApplied"/>, <see cref="BlockUndone"/> and <see cref="Reset"/>: a missing case is compiler warning CS8509 (a switch statement is not checked), and reading the cases allocates nothing. <see cref="Value"/> boxes. End the switch with <c>null =&gt; throw new UnreachableException()</c>: a default event holds no case.</remarks>
 [Union]
 public readonly struct FollowTipEvent : IUnion, IServerStream<FollowTipCall, FollowTipResponse, FollowTipEvent>
 {
@@ -16,12 +16,15 @@ public readonly struct FollowTipEvent : IUnion, IServerStream<FollowTipCall, Fol
     private FollowTipEvent(FollowTipResponse response) => this.response = response;
 
     /// <summary>Creates an event that applies a block.</summary>
+    /// <include file="../Docs.xml" path="docs/member[@name='eventCase']/*"/>
     public FollowTipEvent(BlockApplied value) => response = new() { Apply = value.Block ?? throw new ArgumentNullException(nameof(value)) };
 
     /// <summary>Creates an event that undoes a block.</summary>
+    /// <include file="../Docs.xml" path="docs/member[@name='eventCase']/*"/>
     public FollowTipEvent(BlockUndone value) => response = new() { Undo = value.Block ?? throw new ArgumentNullException(nameof(value)) };
 
     /// <summary>Creates an event that resets to a point.</summary>
+    /// <include file="../Docs.xml" path="docs/member[@name='eventCase']/*"/>
     public FollowTipEvent(Reset value) => response = new() { Reset = value.Point ?? throw new ArgumentNullException(nameof(value)) };
 
     /// <summary>Gets the Spec message this event reads; changing the message's action changes what the event reads.</summary>

@@ -7,7 +7,7 @@ using WatchTxCall = (Utxorpc.V1Alpha.Watch.WatchService.WatchServiceClient Clien
 namespace Utxorpc.Sdk.V1Alpha;
 
 /// <summary>One message of the v1alpha WatchTx stream: a transaction to apply, a transaction to undo, or a block without a match.</summary>
-/// <remarks>Read it with a switch expression over <see cref="TxApplied"/>, <see cref="TxUndone"/> and <see cref="Idle"/>: a missing case is compiler warning CS8509 (a switch statement is not checked), and reading the cases allocates nothing. <see cref="Value"/> boxes.</remarks>
+/// <remarks>Read it with a switch expression over <see cref="TxApplied"/>, <see cref="TxUndone"/> and <see cref="Idle"/>: a missing case is compiler warning CS8509 (a switch statement is not checked), and reading the cases allocates nothing. <see cref="Value"/> boxes. End the switch with <c>null =&gt; throw new UnreachableException()</c>: a default event holds no case.</remarks>
 [Union]
 public readonly struct WatchTxEvent : IUnion, IServerStream<WatchTxCall, WatchTxResponse, WatchTxEvent>
 {
@@ -16,12 +16,15 @@ public readonly struct WatchTxEvent : IUnion, IServerStream<WatchTxCall, WatchTx
     private WatchTxEvent(WatchTxResponse response) => this.response = response;
 
     /// <summary>Creates an event that applies a transaction.</summary>
+    /// <include file="../Docs.xml" path="docs/member[@name='eventCase']/*"/>
     public WatchTxEvent(TxApplied value) => response = new() { Apply = value.Tx ?? throw new ArgumentNullException(nameof(value)) };
 
     /// <summary>Creates an event that undoes a transaction.</summary>
+    /// <include file="../Docs.xml" path="docs/member[@name='eventCase']/*"/>
     public WatchTxEvent(TxUndone value) => response = new() { Undo = value.Tx ?? throw new ArgumentNullException(nameof(value)) };
 
     /// <summary>Creates an event for a block without a match.</summary>
+    /// <include file="../Docs.xml" path="docs/member[@name='eventCase']/*"/>
     public WatchTxEvent(Idle value) => response = new() { Idle = value.Point ?? throw new ArgumentNullException(nameof(value)) };
 
     /// <summary>Gets the Spec message this event reads; changing the message's action changes what the event reads.</summary>
@@ -76,5 +79,5 @@ public readonly record struct TxApplied(AnyChainTx Tx);
 public readonly record struct TxUndone(AnyChainTx Tx);
 
 /// <summary>A block in which nothing matched.</summary>
-/// <param name="Point">The block.</param>
+/// <param name="Point">The point.</param>
 public readonly record struct Idle(BlockRef Point);

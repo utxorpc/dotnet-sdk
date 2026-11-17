@@ -20,24 +20,38 @@ namespace Utxorpc.Sdk;
 /// </remarks>
 public sealed class UtxorpcClient : IDisposable
 {
+    private const string UrlRequired = "UtxorpcClientOptions.Url is required.";
+    private static readonly TimeSpan MaxTimeout = TimeSpan.FromMilliseconds(int.MaxValue);
     private static readonly UtxorpcClientOptions Defaults = new();
     private GrpcChannel? ownedChannel;
     private SocketsHttpHandler? ownedHandler;
 
     /// <summary>Creates and owns a channel configured with the given options.</summary>
+    /// <param name="options">The client options, including the required URL.</param>
+    /// <exception cref="ArgumentNullException">The options or their URL is null.</exception>
+    /// <exception cref="ArgumentException">The URL is blank or a header name is invalid.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A retry, keep-alive or timeout option is out of range.</exception>
+    /// <exception cref="UriFormatException">The URL is not a valid URI.</exception>
     public UtxorpcClient(UtxorpcClientOptions options)
-        : this(ValidateOptions(options), options.Headers, options.MaxAttempts, options.KeepAliveInterval, options.ConfigureChannel)
+        : this(ValidateOptions(options), options.Headers, options.MaxAttempts, options.KeepAliveInterval, options.DefaultTimeout, options.ConfigureChannel)
     {
     }
 
     /// <summary>Creates and owns a channel to the given URL.</summary>
+    /// <param name="url">The server URL, including its scheme.</param>
+    /// <param name="headers">The headers sent with every call, or null for none.</param>
+    /// <param name="configureChannel">An optional callback that changes the channel defaults.</param>
+    /// <exception cref="ArgumentNullException">The URL is null.</exception>
+    /// <exception cref="ArgumentException">The URL is blank or a header name is invalid.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A channel option is out of range.</exception>
+    /// <exception cref="UriFormatException">The URL is not a valid URI.</exception>
     public UtxorpcClient(string url, IEnumerable<KeyValuePair<string, string>>? headers = null, Action<GrpcChannelOptions>? configureChannel = null)
-        : this(url, headers, Defaults.MaxAttempts, Defaults.KeepAliveInterval, configureChannel)
+        : this(url, headers, Defaults.MaxAttempts, Defaults.KeepAliveInterval, Defaults.DefaultTimeout, configureChannel)
     {
     }
 
     private UtxorpcClient(string url, IEnumerable<KeyValuePair<string, string>>? headers, int maxAttempts,
-        TimeSpan keepAliveInterval, Action<GrpcChannelOptions>? configureChannel)
+        TimeSpan keepAliveInterval, TimeSpan defaultTimeout, Action<GrpcChannelOptions>? configureChannel)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
         Metadata metadata = CreateHeaders(headers);
@@ -54,15 +68,26 @@ public sealed class UtxorpcClient : IDisposable
         options.HttpHandler = ownedHandler;
         configureChannel?.Invoke(options);
         if (options.HttpClient is not null && ReferenceEquals(options.HttpHandler, ownedHandler)) options.HttpHandler = null;
-        ownedChannel = GrpcChannel.ForAddress(url, options);
-        (V1Alpha, V1Beta) = CreateClients(ownedChannel, metadata);
+        try
+        {
+            ownedChannel = GrpcChannel.ForAddress(url, options);
+        }
+        catch (UriFormatException exception)
+        {
+            throw new UriFormatException("The URL is not a valid URI; it needs a scheme, such as http:// or https://.", exception);
+        }
+        (V1Alpha, V1Beta) = CreateClients(ownedChannel, metadata, defaultTimeout);
     }
 
     /// <summary>Uses a caller-owned channel without changing its settings or lifetime.</summary>
+    /// <param name="channel">The caller-owned channel.</param>
+    /// <param name="headers">The headers sent with every call, or null for none.</param>
+    /// <exception cref="ArgumentNullException">The channel is null.</exception>
+    /// <exception cref="ArgumentException">A header name is invalid.</exception>
     public UtxorpcClient(ChannelBase channel, IEnumerable<KeyValuePair<string, string>>? headers = null)
     {
         ArgumentNullException.ThrowIfNull(channel);
-        (V1Alpha, V1Beta) = CreateClients(channel, CreateHeaders(headers));
+        (V1Alpha, V1Beta) = CreateClients(channel, CreateHeaders(headers), Defaults.DefaultTimeout);
     }
 
     /// <summary>Gets the v1alpha generated service clients.</summary>
@@ -85,7 +110,11 @@ public sealed class UtxorpcClient : IDisposable
             throw new ArgumentOutOfRangeException(nameof(options), options.MaxAttempts, "MaxAttempts must be from 1 to 5.");
         if (options.KeepAliveInterval != Timeout.InfiniteTimeSpan && options.KeepAliveInterval < TimeSpan.FromSeconds(1))
             throw new ArgumentOutOfRangeException(nameof(options), options.KeepAliveInterval, "KeepAliveInterval must be at least 1 second, or infinite.");
-        return options.Url!;
+        if (options.DefaultTimeout != Timeout.InfiniteTimeSpan && (options.DefaultTimeout <= TimeSpan.Zero || options.DefaultTimeout > MaxTimeout))
+            throw new ArgumentOutOfRangeException(nameof(options), options.DefaultTimeout, "DefaultTimeout must be positive and at most 2147483647 milliseconds (about 24.8 days), or infinite.");
+        if (string.IsNullOrWhiteSpace(options.Url))
+            throw options.Url is null ? new ArgumentNullException(nameof(options), UrlRequired) : new ArgumentException(UrlRequired, nameof(options));
+        return options.Url;
     }
 
     private static ServiceConfig CreateServiceConfig(int maxAttempts) => new()
@@ -104,6 +133,7 @@ public sealed class UtxorpcClient : IDisposable
                     RetryableStatusCodes = { StatusCode.Unavailable }
                 }
             },
+            // Exclude server streams: retry can turn cancellation before the first message into RpcException(Cancelled); see https://github.com/grpc/grpc-dotnet/issues/2788.
             new MethodConfig
             {
                 Names =
@@ -136,13 +166,9 @@ public sealed class UtxorpcClient : IDisposable
         return metadata;
     }
 
-    private static (V1AlphaClients, V1BetaClients) CreateClients(ChannelBase channel, Metadata headers)
+    private static (V1AlphaClients, V1BetaClients) CreateClients(ChannelBase channel, Metadata headers, TimeSpan defaultTimeout)
     {
-        CallInvoker invoker = channel.CreateCallInvoker();
-        if (headers.Count > 0)
-        {
-            invoker = new HeaderCallInvoker(invoker, headers);
-        }
+        CallInvoker invoker = new ClientCallInvoker(channel.CreateCallInvoker(), headers, defaultTimeout);
         return (new V1AlphaClients(invoker), new V1BetaClients(invoker));
     }
 }

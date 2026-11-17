@@ -1,4 +1,6 @@
+using System.Runtime.CompilerServices;
 using Google.Protobuf;
+using Google.Protobuf.Collections;
 using Google.Protobuf.WellKnownTypes;
 using Utxorpc.Sdk.Internal;
 using Utxorpc.Sdk.V1Beta;
@@ -10,35 +12,51 @@ namespace Utxorpc.Sdk;
 /// <summary>Provides plain .NET inputs for the v1beta synchronization client.</summary>
 public static class V1BetaSyncExtensions
 {
-    /// <summary>Reads the current chain tip.</summary>
+    /// <include file="Docs.xml" path="docs/member[@name='ReadTipAsync']/*"/>
+    /// <include file="Docs.xml" path="docs/call/*"/>
     public static Task<ReadTipResponse> ReadTipAsync(this SyncService.SyncServiceClient client, CancellationToken cancellationToken = default) =>
         client.ReadTipAsync(new ReadTipRequest(), cancellationToken: cancellationToken).ResponseAsync;
 
-    /// <summary>Fetches a block without copying hash memory; it must not change until the returned task completes.</summary>
-    /// <remarks>Write the point as <c>new BlockPoint(slot, hash)</c>; for <c>FetchBlockAsync</c>, a bare <c>new(...)</c> picks the generated call.</remarks>
-    public static Task<FetchBlockResponse> FetchBlockAsync(this SyncService.SyncServiceClient client, BlockPoint point, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
+    /// <include file="Docs.xml" path="docs/member[@name='FetchBlockAsync']/*"/>
+    /// <include file="Docs.xml" path="docs/call/*"/>
+    /// <include file="Docs.xml" path="docs/mask/*"/>
+    [OverloadResolutionPriority(1)]
+    public static Task<FetchBlockResponse> FetchBlockAsync(this SyncService.SyncServiceClient client, BlockPoint point, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
+        client.FetchBlockAsync(new ReadOnlySpan<BlockPoint>(in point), fieldMask, cancellationToken);
+
+    /// <include file="Docs.xml" path="docs/member[@name='FetchBlockAsync(points)']/*"/>
+    /// <include file="Docs.xml" path="docs/call/*"/>
+    /// <include file="Docs.xml" path="docs/mask/*"/>
+    public static Task<FetchBlockResponse> FetchBlockAsync(this SyncService.SyncServiceClient client, ReadOnlySpan<BlockPoint> points, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
     {
         FetchBlockRequest request = new() { FieldMask = fieldMask };
-        request.Ref.Capacity = 1;
-        request.Ref.Add(new BlockRef { Slot = point.Slot, Hash = UnsafeByteOperations.UnsafeWrap(point.Hash) });
+        AddPoints(request.Ref, points);
         return client.FetchBlockAsync(request, cancellationToken: cancellationToken).ResponseAsync;
     }
 
-    /// <summary>Follows the tip; an optional point's hash memory must not change until enumeration ends.</summary>
-    /// <remarks>Use <c>new BlockPoint(slot, hash)</c> for a point, or <c>null</c> for the server's current tip. Name <c>cancellationToken</c> to omit the mask. Each message is a <see cref="FollowTipEvent"/>; one without an action this SDK knows ends the stream with <see cref="InvalidOperationException"/>; the generated <c>FollowTip</c> call returns the Spec messages.</remarks>
-    public static IAsyncEnumerable<FollowTipEvent> FollowTipAsync(this SyncService.SyncServiceClient client, BlockPoint? from, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
+    /// <include file="Docs.xml" path="docs/member[@name='FollowTipAsync']/*[not(self::remarks)]"/>
+    /// <include file="Docs.xml" path="docs/stream/*[not(self::remarks)]"/>
+    /// <include file="Docs.xml" path="docs/mask/*"/>
+    /// <remarks><include file="Docs.xml" path="docs/member[@name='FollowTipAsync']/remarks/*"/> <include file="Docs.xml" path="docs/stream/remarks/*"/></remarks>
+    [OverloadResolutionPriority(1)]
+    public static IAsyncEnumerable<FollowTipEvent> FollowTipAsync(this SyncService.SyncServiceClient client, BlockPoint? from = null, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
+        client.FollowTipAsync(from is BlockPoint point ? new ReadOnlySpan<BlockPoint>(in point) : default, fieldMask, cancellationToken);
+
+    /// <include file="Docs.xml" path="docs/member[@name='FollowTipAsync(intersect)']/*[not(self::remarks)]"/>
+    /// <include file="Docs.xml" path="docs/stream/*[not(self::remarks)]"/>
+    /// <include file="Docs.xml" path="docs/mask/*"/>
+    /// <remarks><include file="Docs.xml" path="docs/member[@name='FollowTipAsync(intersect)']/remarks/*"/> <include file="Docs.xml" path="docs/stream/remarks/*"/></remarks>
+    public static IAsyncEnumerable<FollowTipEvent> FollowTipAsync(this SyncService.SyncServiceClient client, ReadOnlySpan<BlockPoint> intersect, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
     {
         FollowTipRequest request = new() { FieldMask = fieldMask };
-        if (from is BlockPoint point)
-        {
-            request.Intersect.Capacity = 1;
-            request.Intersect.Add(new BlockRef { Slot = point.Slot, Hash = UnsafeByteOperations.UnsafeWrap(point.Hash) });
-        }
+        AddPoints(request.Intersect, intersect);
         return ServerStream.ReadAllAsync<FollowTipCall, FollowTipResponse, FollowTipEvent, FollowTipEvent>((client, request), cancellationToken);
     }
 
-    /// <summary>Reads every history page; an optional point's hash memory must not change until enumeration ends.</summary>
-    /// <remarks>Page size must be at least 1: Dolos returns no blocks and a token for 0. Each page is one gRPC message, so page size times block size must fit the receive limit (4 MB by default); a native_bytes mask makes blocks about eight times smaller. Whether the block at from is included is the server's choice.</remarks>
+    /// <include file="Docs.xml" path="docs/member[@name='DumpAllHistoryAsync']/*[not(self::remarks)]"/>
+    /// <include file="Docs.xml" path="docs/stream/*[not(self::remarks)]"/>
+    /// <include file="Docs.xml" path="docs/mask/*"/>
+    /// <remarks><include file="Docs.xml" path="docs/member[@name='DumpAllHistoryAsync']/remarks/*"/> <include file="Docs.xml" path="docs/stream/remarks/*"/></remarks>
     public static IAsyncEnumerable<AnyChainBlock> DumpAllHistoryAsync(this SyncService.SyncServiceClient client, BlockPoint? from, int pageSize, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(pageSize, 1);
@@ -56,5 +74,14 @@ public static class V1BetaSyncExtensions
             static response => response.Block,
             static response => response.NextToken,
             cancellationToken);
+    }
+
+    private static void AddPoints(RepeatedField<BlockRef> target, ReadOnlySpan<BlockPoint> points)
+    {
+        target.Capacity = points.Length;
+        for (int i = 0; i < points.Length; i++)
+        {
+            target.Add(new BlockRef { Slot = points[i].Slot, Hash = UnsafeByteOperations.UnsafeWrap(points[i].Hash) });
+        }
     }
 }

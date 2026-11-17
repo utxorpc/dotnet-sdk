@@ -1,9 +1,9 @@
-using System.Reflection;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Buffers.Binary;
 using System.Net;
 using System.Net.Http.Headers;
 using Google.Protobuf;
-using ServiceDescriptor = Google.Protobuf.Reflection.ServiceDescriptor;
 using Grpc.Core;
 using Grpc.Net.Client;
 using Grpc.Net.Client.Configuration;
@@ -11,6 +11,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Utxorpc.Sdk.Test.Fakes;
 using Xunit.Abstractions;
+using Alpha = Utxorpc.V1Alpha;
 using Beta = Utxorpc.V1Beta;
 
 namespace Utxorpc.Sdk.Test;
@@ -24,6 +25,13 @@ public abstract class ClientTestBase : IAsyncLifetime
     /// <summary>Starts a fresh HTTP/2 server for each case.</summary>
     public async Task InitializeAsync() => server = await FakeServer.StartAsync();
 
+    /// <summary>Warms the connection before a short timeout and removes only its setup call.</summary>
+    private protected async Task WarmConnectionAsync(UtxorpcClient client)
+    {
+        await client.V1Beta.Sync.ReadTipAsync(new(), deadline: DateTime.UtcNow.AddSeconds(5), cancellationToken: cancellation.Token);
+        server.State.Calls.Clear();
+    }
+
     /// <summary>Releases the server and the test timeout.</summary>
     public async Task DisposeAsync()
     {
@@ -35,7 +43,7 @@ public abstract class ClientTestBase : IAsyncLifetime
 
 /// <summary>Checks channel defaults, retry boundaries, transport ownership and client registration.</summary>
 [Trait("Category", "Unit")]
-public sealed class ClientOptionsTests : ClientTestBase
+public sealed class ClientOptionsTests(ITestOutputHelper output) : ClientTestBase
 {
     /// <summary>Retries an unavailable read and observes both requests on the server.</summary>
     [Fact]
@@ -78,6 +86,213 @@ public sealed class ClientOptionsTests : ClientTestBase
         AssertCalls("/utxorpc.v1beta.sync.SyncService/ReadTip", 1);
     }
 
+    /// <summary>Normalizes each expired deadline, including headers and individual stream reads.</summary>
+    [Theory]
+    [InlineData("unary", "v1alpha", 3)]
+    [InlineData("unary", "v1beta", 3)]
+    [InlineData("unary", "v1alpha", 1)]
+    [InlineData("unary", "v1beta", 1)]
+    [InlineData("stream", "v1alpha", 3)]
+    [InlineData("stream", "v1beta", 3)]
+    [InlineData("stream", "v1alpha", 1)]
+    [InlineData("stream", "v1beta", 1)]
+    [InlineData("blocking", "v1beta", 1)]
+    [InlineData("read", "v1beta", 3)]
+    [InlineData("headers", "v1beta", 3)]
+    [InlineData("headers", "v1beta", 1)]
+    [InlineData("stream-headers", "v1beta", 3)]
+    [InlineData("stream-headers", "v1beta", 1)]
+    public async Task ExpiredDeadlineThrowsDeadlineExceeded(string call, string version, int maxAttempts)
+    {
+        server.State.HoldSecondPage = true;
+        server.State.StreamMessages = 0;
+        using UtxorpcClient client = maxAttempts == 1
+            ? new(new UtxorpcClientOptions { Url = server.Url, MaxAttempts = 1 }) : new(server.Url);
+        await WarmConnectionAsync(client);
+        DateTime deadline = DateTime.UtcNow.AddMilliseconds(300);
+        RpcException error = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            if (call == "blocking")
+                await Task.Run(() => client.V1Beta.Query.SearchUtxos(new() { StartToken = "p2" }, deadline: deadline, cancellationToken: cancellation.Token), cancellation.Token);
+            else if (call == "unary" || call == "headers")
+            {
+                if (version == "v1alpha")
+                    await client.V1Alpha.Query.SearchUtxosAsync(new() { StartToken = "p2" }, deadline: deadline, cancellationToken: cancellation.Token);
+                else
+                {
+                    using AsyncUnaryCall<Beta.Query.SearchUtxosResponse> unary = client.V1Beta.Query.SearchUtxosAsync(new() { StartToken = "p2" }, deadline: deadline, cancellationToken: cancellation.Token);
+                    if (call == "headers") Assert.Equal(StatusCode.DeadlineExceeded, (await Assert.ThrowsAsync<RpcException>(() => unary.ResponseHeadersAsync)).StatusCode);
+                    await unary.ResponseAsync;
+                }
+            }
+            else if (version == "v1alpha")
+            {
+                await foreach (Alpha.Sync.FollowTipResponse _ in client.V1Alpha.Sync.FollowTip(new(), deadline: deadline, cancellationToken: cancellation.Token).ReadAllAsync(cancellation.Token)) { }
+            }
+            else
+            {
+                using AsyncServerStreamingCall<Beta.Sync.FollowTipResponse> stream = client.V1Beta.Sync.FollowTip(new(), deadline: deadline, cancellationToken: cancellation.Token);
+                if (call == "stream-headers") Assert.Equal(StatusCode.DeadlineExceeded, (await Assert.ThrowsAsync<RpcException>(() => stream.ResponseHeadersAsync)).StatusCode);
+                if (call == "read" || call == "stream-headers") while (await stream.ResponseStream.MoveNext(cancellation.Token)) { }
+                else await foreach (Beta.Sync.FollowTipResponse _ in stream.ReadAllAsync(cancellation.Token)) { }
+            }
+        });
+        Assert.Equal(StatusCode.DeadlineExceeded, error.StatusCode);
+        Assert.False(cancellation.IsCancellationRequested);
+        bool streaming = call is "stream" or "read" or "stream-headers";
+        if (streaming) await server.State.WaitForStreamEndAsync(version);
+        AssertCalls(streaming ? $"/utxorpc.{version}.sync.SyncService/FollowTip" : $"/utxorpc.{version}.query.QueryService/SearchUtxos", 1);
+    }
+
+    /// <summary>Preserves caller cancellation even when the call or read starts after its deadline.</summary>
+    [Theory]
+    [InlineData("unary", 3)]
+    [InlineData("unary", 1)]
+    [InlineData("stream", 3)]
+    [InlineData("unary-precancelled", 1)]
+    [InlineData("read-precancelled", 3)]
+    public async Task CancelledTokenBeforeTheDeadlineThrowsOperationCanceled(string call, int maxAttempts)
+    {
+        server.State.HoldSecondPage = true;
+        server.State.StreamMessages = 0;
+        using UtxorpcClient client = new(new UtxorpcClientOptions { Url = server.Url, MaxAttempts = maxAttempts });
+        using CancellationTokenSource cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
+        bool precancelled = call.EndsWith("precancelled", StringComparison.Ordinal);
+        if (precancelled) cancel.Cancel();
+        else cancel.CancelAfter(TimeSpan.FromMilliseconds(100));
+        DateTime deadline = DateTime.UtcNow.AddMilliseconds(precancelled ? -100 : 30000);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            if (call == "read-precancelled")
+            {
+                using AsyncServerStreamingCall<Beta.Sync.FollowTipResponse> stream = client.V1Beta.Sync.FollowTip(new(), deadline: deadline);
+                await stream.ResponseStream.MoveNext(cancel.Token);
+            }
+            else if (call == "stream")
+            {
+                await foreach (Beta.Sync.FollowTipResponse _ in client.V1Beta.Sync.FollowTip(new(), deadline: deadline, cancellationToken: cancel.Token).ReadAllAsync(cancel.Token)) { }
+            }
+            else await client.V1Beta.Query.SearchUtxosAsync(new() { StartToken = "p2" }, deadline: deadline, cancellationToken: cancel.Token);
+        });
+        Assert.False(cancellation.IsCancellationRequested);
+    }
+
+    /// <summary>Keeps an observed read cancellation when headers are read after the deadline.</summary>
+    [Theory]
+    [InlineData("v1alpha")]
+    [InlineData("v1beta")]
+    public async Task CancelledTokenBeforeTheDeadlineRemainsCancelledForLaterHeaders(string version)
+    {
+        server.State.StreamMessages = 0;
+        using UtxorpcClient client = new(server.Url);
+        DateTime deadline = DateTime.UtcNow.AddMilliseconds(600);
+        if (version == "v1alpha")
+        {
+            using AsyncServerStreamingCall<Alpha.Sync.FollowTipResponse> stream = client.V1Alpha.Sync.FollowTip(new(), deadline: deadline);
+            await Check(stream);
+        }
+        else
+        {
+            using AsyncServerStreamingCall<Beta.Sync.FollowTipResponse> stream = client.V1Beta.Sync.FollowTip(new(), deadline: deadline);
+            await Check(stream);
+        }
+
+        async Task Check<T>(AsyncServerStreamingCall<T> stream)
+        {
+            using CancellationTokenSource read = new(TimeSpan.FromMilliseconds(50));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => stream.ResponseStream.MoveNext(read.Token));
+            Assert.True(DateTime.UtcNow < deadline);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => stream.ResponseHeadersAsync);
+            await Task.Delay(TimeSpan.FromMilliseconds(650), cancellation.Token);
+            Assert.Equal(StatusCode.Cancelled, stream.GetStatus().StatusCode);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => stream.ResponseHeadersAsync);
+        }
+    }
+
+    /// <summary>Allows the wire timeout's millisecond rounding without changing early cancellation.</summary>
+    [Fact]
+    public async Task EarlyServerDeadlineIsDeadlineExceeded()
+    {
+        AllocationTests.StubChannel channel = new();
+        channel.Invoker.Cancelled = true;
+        using UtxorpcClient client = new(channel);
+        for (int i = 0; i < 20; i++)
+        {
+            Assert.Equal(StatusCode.DeadlineExceeded, (await Assert.ThrowsAsync<RpcException>(async () => await client.V1Beta.Sync.ReadTipAsync(new(), deadline: DateTime.UtcNow.AddMilliseconds(0.9)))).StatusCode);
+            using (AsyncServerStreamingCall<Beta.Sync.FollowTipResponse> stream = client.V1Beta.Sync.FollowTip(new(), deadline: DateTime.UtcNow.AddMilliseconds(0.9)))
+                Assert.Equal(StatusCode.DeadlineExceeded, (await Assert.ThrowsAsync<RpcException>(() => stream.ResponseStream.MoveNext(default))).StatusCode);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await client.V1Beta.Sync.ReadTipAsync(new(), deadline: DateTime.UtcNow.AddSeconds(30)));
+            using (AsyncServerStreamingCall<Beta.Sync.FollowTipResponse> stream = client.V1Beta.Sync.FollowTip(new(), deadline: DateTime.UtcNow.AddSeconds(30)))
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => stream.ResponseStream.MoveNext(default));
+            Assert.Equal(StatusCode.DeadlineExceeded, (await Assert.ThrowsAsync<RpcException>(async () => await client.V1Beta.Sync.ReadTipAsync(new(), deadline: DateTime.MinValue))).StatusCode);
+            using (AsyncServerStreamingCall<Beta.Sync.FollowTipResponse> stream = client.V1Beta.Sync.FollowTip(new(), deadline: DateTime.MinValue))
+                Assert.Equal(StatusCode.DeadlineExceeded, (await Assert.ThrowsAsync<RpcException>(() => stream.ResponseStream.MoveNext(default))).StatusCode);
+        }
+    }
+
+    /// <summary>Applies the default to each unary call, but not to explicit deadlines or streams.</summary>
+    [Fact]
+    public async Task DefaultTimeoutCoversUnaryCallsOnly()
+    {
+        server.State.HoldSecondPage = true;
+        server.State.StreamMessages = 0;
+        using UtxorpcClient client = new(new UtxorpcClientOptions { Url = server.Url, MaxAttempts = 1, DefaultTimeout = TimeSpan.FromMilliseconds(200) });
+        await WarmConnectionAsync(client);
+        int pages = 0;
+        RpcException paged = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            await foreach (Beta.Query.AnyUtxoData _ in client.V1Beta.Query.SearchAllUtxosAsync(new(), cancellationToken: cancellation.Token)) pages++;
+        });
+        Assert.Equal(1, pages);
+        Assert.Equal(StatusCode.DeadlineExceeded, paged.StatusCode);
+        Assert.Equal(StatusCode.DeadlineExceeded, (await Assert.ThrowsAsync<RpcException>(async () => await client.V1Beta.Query.SearchUtxosAsync(new() { StartToken = "p2" }, cancellationToken: cancellation.Token))).StatusCode);
+        Stopwatch clock = Stopwatch.StartNew();
+        Assert.Equal(StatusCode.DeadlineExceeded, (await Assert.ThrowsAsync<RpcException>(async () => await client.V1Beta.Query.SearchUtxosAsync(new() { StartToken = "p2" }, deadline: DateTime.UtcNow.AddMilliseconds(600), cancellationToken: cancellation.Token))).StatusCode);
+        Assert.True(clock.ElapsedMilliseconds >= 550);
+        output.WriteLine($"Explicit deadline with a 200 ms default: {clock.ElapsedMilliseconds} ms.");
+        using CancellationTokenSource first = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
+        first.CancelAfter(TimeSpan.FromMilliseconds(50));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await client.V1Beta.Query.SearchUtxosAsync(new() { StartToken = "p2" }, cancellationToken: first.Token));
+        using CancellationTokenSource stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
+        stop.CancelAfter(TimeSpan.FromMilliseconds(900));
+        clock.Restart();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (V1Beta.FollowTipEvent _ in client.V1Beta.Sync.FollowTipAsync(cancellationToken: stop.Token)) { }
+        });
+        Assert.True(clock.ElapsedMilliseconds >= 850);
+        output.WriteLine($"Stream with a 200 ms default: {clock.ElapsedMilliseconds} ms.");
+        Assert.Equal(42UL, (await client.V1Beta.Sync.ReadTipAsync(cancellation.Token)).Tip.Slot);
+        Assert.False(cancellation.IsCancellationRequested);
+    }
+
+    /// <summary>Rejects null generated requests synchronously before sending a call.</summary>
+    [Fact]
+    public void NullRequestThrowsOnTheCallersSide()
+    {
+        using UtxorpcClient client = new(server.Url);
+        Assert.Equal("request", Assert.Throws<ArgumentNullException>(() => client.V1Beta.Sync.ReadTipAsync(default)).ParamName);
+        Assert.Throws<ArgumentNullException>(() => client.V1Beta.Query.ReadParamsAsync(null));
+        Assert.Throws<ArgumentNullException>(() => client.V1Alpha.Sync.ReadTip(null));
+        Assert.Throws<ArgumentNullException>(() => client.V1Beta.Sync.FollowTip(null));
+        Assert.Empty(server.State.Calls);
+    }
+
+    /// <summary>Configures both ordinary and named clients from the same service provider.</summary>
+    [Fact]
+    public async Task ServicesConfigureTheClient()
+    {
+        ServiceCollection services = new();
+        services.AddSingleton(server);
+        services.AddUtxorpcClient((provider, options) => options.Url = provider.GetRequiredService<FakeServer>().Url);
+        services.AddUtxorpcClient("k", (provider, options) => options.Url = provider.GetRequiredService<FakeServer>().Url);
+        using ServiceProvider provider = services.BuildServiceProvider();
+        Assert.Equal(42UL, (await provider.GetRequiredService<UtxorpcClient>().V1Beta.Sync.ReadTipAsync(cancellation.Token)).Tip.Slot);
+        Assert.Equal(42UL, (await provider.GetRequiredKeyedService<UtxorpcClient>("k").V1Beta.Sync.ReadTipAsync(cancellation.Token)).Tip.Slot);
+        Assert.Throws<ArgumentNullException>(() => new ServiceCollection().AddUtxorpcClient(null!));
+        Assert.Throws<ArgumentNullException>(() => new ServiceCollection().AddUtxorpcClient("a", null!));
+    }
+
     /// <summary>Surfaces a broken stream without replaying any delivered message.</summary>
     [Fact]
     public async Task StreamIsNotRetriedAfterItsFirstMessage()
@@ -105,6 +320,7 @@ public sealed class ClientOptionsTests : ClientTestBase
     {
         server.State.StreamMessages = 0;
         using UtxorpcClient client = new(server.Url);
+        await WarmConnectionAsync(client);
         using CancellationTokenSource cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
         cancel.CancelAfter(TimeSpan.FromMilliseconds(200));
         byte[] hash = new byte[32];
@@ -175,10 +391,8 @@ public sealed class ClientOptionsTests : ClientTestBase
             Assert.Equal(StatusCode.Unavailable, Assert.Single(retry.RetryableStatusCodes));
             Assert.Null(config.MethodConfigs[1].RetryPolicy);
             Assert.Equal(10, config.MethodConfigs[1].Names.Count);
-            (string? Service, string? Method)[] expected = typeof(Beta.Sync.SyncService).Assembly.GetTypes()
-                .Select(type => type.GetProperty("Descriptor", BindingFlags.Public | BindingFlags.Static))
-                .Where(property => property?.PropertyType == typeof(ServiceDescriptor))
-                .Select(property => (ServiceDescriptor)property!.GetValue(null)!)
+            (string? Service, string? Method)[] expected = SpecCoverageTests.GeneratedClients()
+                .Select(SpecCoverageTests.Descriptor)
                 .SelectMany(service => service.Methods.Where(method => method.IsServerStreaming
                     || method.Name == nameof(Beta.Submit.SubmitService.SubmitServiceBase.SubmitTx)))
                 .Select(method => ((string?)method.Service.FullName, (string?)method.Name))
@@ -220,10 +434,12 @@ public sealed class ClientOptionsTests : ClientTestBase
 
     /// <summary>Rejects invalid options and registration arguments with their exact exception types.</summary>
     [Fact]
-    public void InvalidOptionsThrow()
+    public async Task InvalidOptionsThrow()
     {
         Assert.Throws<ArgumentNullException>(() => new UtxorpcClient((UtxorpcClientOptions)null!));
-        Assert.Throws<ArgumentNullException>(() => new UtxorpcClient(new UtxorpcClientOptions()));
+        ArgumentNullException missing = Assert.Throws<ArgumentNullException>(() => new UtxorpcClient(new UtxorpcClientOptions()));
+        Assert.Equal("options", missing.ParamName);
+        Assert.Contains("UtxorpcClientOptions.Url is required.", missing.Message, StringComparison.Ordinal);
         Assert.Throws<ArgumentException>(() => new UtxorpcClient(new UtxorpcClientOptions { Url = " " }));
         Assert.Throws<ArgumentException>(() => new UtxorpcClient(""));
         Assert.Throws<ArgumentException>(() => new UtxorpcClient(" "));
@@ -235,7 +451,18 @@ public sealed class ClientOptionsTests : ClientTestBase
         Assert.Throws<ArgumentNullException>(() => UtxorpcServiceCollectionExtensions.AddUtxorpcClient(null!, "a", _ => { }));
         Assert.Throws<ArgumentNullException>(() => new ServiceCollection().AddUtxorpcClient(null!, _ => { }));
         Assert.Throws<ArgumentNullException>(() => new ServiceCollection().AddUtxorpcClient("a", null!));
+        UriFormatException url = Assert.Throws<UriFormatException>(() => new UtxorpcClient("127.0.0.1:50061"));
+        Assert.Contains("http://", url.Message, StringComparison.Ordinal);
+        Assert.IsType<UriFormatException>(url.InnerException);
+        foreach (TimeSpan timeout in new[] { TimeSpan.Zero, TimeSpan.FromMilliseconds(-2), TimeSpan.MaxValue, TimeSpan.FromMilliseconds((double)int.MaxValue + 1) })
+            Assert.Equal("options", Assert.Throws<ArgumentOutOfRangeException>(() => new UtxorpcClient(new UtxorpcClientOptions { Url = server.Url, DefaultTimeout = timeout })).ParamName);
+        foreach (TimeSpan timeout in new[] { Timeout.InfiniteTimeSpan, TimeSpan.FromMilliseconds(int.MaxValue) })
+        {
+            using UtxorpcClient accepted = new(new UtxorpcClientOptions { Url = server.Url, DefaultTimeout = timeout });
+        }
         Assert.Empty(server.State.Calls);
+        using UtxorpcClient resolver = new($"dns:/localhost:{new Uri(server.Url).Port}", configureChannel: options => options.Credentials = ChannelCredentials.Insecure);
+        Assert.Equal(42UL, (await resolver.V1Beta.Sync.ReadTipAsync(cancellation.Token)).Tip.Slot);
     }
 
     /// <summary>Creates one client lazily and disposes it with the container.</summary>
@@ -358,6 +585,42 @@ public sealed class ClientOptionsTests : ClientTestBase
 public sealed class ClientAllocationTests(ITestOutputHelper output) : ClientTestBase
 {
     private const string ReadTipPath = "/utxorpc.v1beta.sync.SyncService/ReadTip";
+
+    /// <summary>Observes the wrapper response fault when the caller reads only headers and disposes.</summary>
+    [Fact]
+    public async Task HeadersOnlyThenDisposeObservesTheUnaryResponseFault()
+    {
+        server.State.HoldSecondPage = true;
+        using UtxorpcClient client = new(new UtxorpcClientOptions { Url = server.Url, MaxAttempts = 1 });
+        await WarmConnectionAsync(client);
+        Collect();
+        int unobserved = 0;
+        void OnUnobserved(object? sender, UnobservedTaskExceptionEventArgs args)
+        {
+            if (args.Exception.ToString().Contains("ClientCallInvoker", StringComparison.Ordinal)) Interlocked.Increment(ref unobserved);
+        }
+        TaskScheduler.UnobservedTaskException += OnUnobserved;
+        try
+        {
+            for (int i = 0; i < 5; i++) await HeadersOnly(client);
+            Collect();
+            Assert.Equal(0, unobserved);
+        }
+        finally { TaskScheduler.UnobservedTaskException -= OnUnobserved; }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private async Task HeadersOnly(UtxorpcClient client)
+    {
+        using AsyncUnaryCall<Beta.Query.SearchUtxosResponse> call = client.V1Beta.Query.SearchUtxosAsync(new() { StartToken = "p2" },
+            deadline: DateTime.UtcNow.AddMilliseconds(200), cancellationToken: cancellation.Token);
+        Assert.Equal(StatusCode.DeadlineExceeded, (await Assert.ThrowsAsync<RpcException>(() => call.ResponseHeadersAsync)).StatusCode);
+    }
+
+    private static void Collect()
+    {
+        for (int i = 0; i < 3; i++) { GC.Collect(); GC.WaitForPendingFinalizers(); }
+    }
     /// <summary>Checks that disabling retry leaves short and raw calls with the same allocation cost.</summary>
     [Fact]
     public async Task RetryOffShortMethodAllocatesLikeTheRawCall()

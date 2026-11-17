@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
@@ -133,6 +134,39 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
         foreach (V1Beta.FollowTipEvent item in beta) output.WriteLine($"beta: {item switch { V1Beta.BlockApplied _ => "apply", V1Beta.BlockUndone _ => "undo", V1Beta.Reset _ => "reset" }}; tip={item.Tip is not null}.");
     }
 
+    /// <summary>Resumes from a current intersection without replaying older blocks.</summary>
+    [Theory]
+    [InlineData("v1alpha")]
+    [InlineData("v1beta")]
+    public async Task FollowTipFromIntersectAsync(string version)
+    {
+        using CancellationTokenSource timeout = Timeout();
+        Beta.Sync.BlockRef tip = (await Client.V1Beta.Sync.ReadTipAsync(timeout.Token)).Tip;
+        BlockPoint point = new(tip.Slot, tip.Hash.Memory);
+        if (version == "v1alpha")
+        {
+            Alpha.Sync.FollowTipResponse first = Assert.Single(await TakeAsync(Client.V1Alpha.Sync.FollowTipAsync(point, cancellationToken: timeout.Token), 1)).Response;
+            await CheckAsync(first.Reset?.Slot, first.Reset?.Hash, first.Apply?.Cardano?.Header?.Slot, first.Apply?.Cardano?.Header?.Height);
+        }
+        else
+        {
+            Beta.Sync.FollowTipResponse first = Assert.Single(await TakeAsync(Client.V1Beta.Sync.FollowTipAsync(point, cancellationToken: timeout.Token), 1)).Response;
+            await CheckAsync(first.Reset?.Slot, first.Reset?.Hash, first.Apply?.Cardano?.Header?.Slot, first.Apply?.Cardano?.Header?.Height);
+        }
+        async Task CheckAsync(ulong? resetSlot, ByteString? resetHash, ulong? applySlot, ulong? applyHeight)
+        {
+            if (resetSlot is not null)
+            {
+                Assert.Equal(tip.Slot, resetSlot);
+                Assert.Equal(tip.Hash, resetHash);
+                return;
+            }
+            Assert.True(applySlot > tip.Slot, "The first event must reset at the intersection or apply its next block.");
+            Beta.Cardano.BlockHeader previous = Assert.Single((await Client.V1Beta.Sync.FetchBlockAsync(point, cancellationToken: timeout.Token)).Block).Cardano.Header;
+            Assert.Equal(previous.Height + 1, applyHeight);
+        }
+    }
+
     /// <summary>Compares parameters, genesis and eras without comparing moving ledger tips.</summary>
     [Fact]
     public async Task ReadChainConfigurationAsync()
@@ -143,6 +177,18 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
         Beta.Query.ReadParamsResponse beta = await Client.V1Beta.Query.ReadParamsAsync(cancellationToken: ct);
         // Dolos 1.6.3 has stale preprod parameters and omits pool_retirement_epoch_bound.
         Assert.Equal(ConfigurationBytes(alpha.Values), ConfigurationBytes(beta.Values));
+        FieldMask mask = FieldMask.FromString("values");
+        Alpha.Query.ReadParamsResponse alphaMasked = await Client.V1Alpha.Query.ReadParamsAsync(mask, ct);
+        Beta.Query.ReadParamsResponse betaMasked = await Client.V1Beta.Query.ReadParamsAsync(mask, ct);
+        Assert.Equal(ConfigurationBytes(alpha.Values), ConfigurationBytes(alphaMasked.Values));
+        Assert.Equal(ConfigurationBytes(beta.Values), ConfigurationBytes(betaMasked.Values));
+        CheckMask(alphaMasked.LedgerTip);
+        CheckMask(betaMasked.LedgerTip);
+        void CheckMask(IMessage? ledgerTip)
+        {
+            if (server.IsDingo && ledgerTip is not null) output.WriteLine("Dingo ReadParams field mask not honoured: ledger_tip remains.");
+            else Assert.Null(ledgerTip);
+        }
         Assert.Equal(ConfigurationBytes(await Client.V1Alpha.Query.ReadGenesisAsync(cancellationToken: ct)),
             ConfigurationBytes(await Client.V1Beta.Query.ReadGenesisAsync(cancellationToken: ct)));
         Assert.Equal(ConfigurationBytes(await Client.V1Alpha.Query.ReadEraSummaryAsync(cancellationToken: ct)),
@@ -170,6 +216,48 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
             break;
         }
         Assert.True(alphaFound && betaFound);
+    }
+
+    /// <summary>Accepts an address predicate and intersection, validates delivered matches, and cancels cleanly.</summary>
+    [Theory]
+    [InlineData("v1alpha")]
+    [InlineData("v1beta")]
+    public async Task WatchTxFromIntersectWithPredicateAsync(string version)
+    {
+        using CancellationTokenSource timeout = Timeout();
+        ByteString address = (await server.SampleAsync(timeout.Token)).Transaction.Outputs.First(item => !item.Address.IsEmpty).Address;
+        Beta.Sync.BlockRef tip = (await Client.V1Beta.Sync.ReadTipAsync(timeout.Token)).Tip;
+        BlockPoint point = new(tip.Slot, tip.Hash.Memory);
+        using CancellationTokenSource cancel = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+        cancel.CancelAfter(TimeSpan.FromSeconds(3));
+        int seen = 0;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            if (version == "v1alpha")
+            {
+                await foreach (V1Alpha.WatchTxEvent item in Client.V1Alpha.Watch.WatchTxAsync(Alpha.Watch.TxPredicate.HasAddress(exactAddress: address.Memory), point, cancellationToken: cancel.Token))
+                {
+                    Alpha.Cardano.Tx? tx = item.Response.Apply?.Cardano ?? item.Response.Undo?.Cardano;
+                    if (tx is not null) Assert.Contains(address, tx.Outputs.Select(value => value.Address)
+                        .Concat(tx.Inputs.Concat(tx.ReferenceInputs).Concat(tx.Collateral?.Collateral_ ?? []).Select(value => value.AsOutput?.Address ?? ByteString.Empty))
+                        .Append(tx.Collateral?.CollateralReturn?.Address ?? ByteString.Empty));
+                    if (++seen == 2) cancel.Cancel();
+                }
+            }
+            else
+            {
+                await foreach (V1Beta.WatchTxEvent item in Client.V1Beta.Watch.WatchTxAsync(Beta.Watch.TxPredicate.HasAddress(exactAddress: address.Memory), point, cancellationToken: cancel.Token))
+                {
+                    Beta.Cardano.Tx? tx = item.Response.Apply?.Cardano ?? item.Response.Undo?.Cardano;
+                    if (tx is not null) Assert.Contains(address, tx.Outputs.Select(value => value.Address)
+                        .Concat(tx.Inputs.Concat(tx.ReferenceInputs).Concat(tx.Collateral?.Collateral_ ?? []).Select(value => value.AsOutput?.Address ?? ByteString.Empty))
+                        .Append(tx.Collateral?.CollateralReturn?.Address ?? ByteString.Empty));
+                    if (++seen == 2) cancel.Cancel();
+                }
+            }
+        });
+        Assert.False(timeout.IsCancellationRequested);
+        output.WriteLine($"{version} filtered WatchTx: {seen} events before cancellation.");
     }
 
     /// <summary>Reads a discovered transaction and checks an unknown hash's NotFound status.</summary>
@@ -203,6 +291,19 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
         Assert.Equal(alpha.TxoRef.ToByteString(), beta.TxoRef.ToByteString());
         Assert.True(found.Reference.TxHash.Span.SequenceEqual(alpha.TxoRef.Hash.Span));
         Assert.Equal(found.Reference.Index, alpha.TxoRef.Index);
+        FieldMask mask = FieldMask.FromString("items");
+        Alpha.Query.ReadUtxosResponse alphaMasked = await Client.V1Alpha.Query.ReadUtxosAsync([found.Reference], mask, ct);
+        Beta.Query.ReadUtxosResponse betaMasked = await Client.V1Beta.Query.ReadUtxosAsync([found.Reference], mask, ct);
+        Assert.Equal(alpha.NativeBytes, Assert.Single(alphaMasked.Items).NativeBytes);
+        Assert.Equal(beta.NativeBytes, Assert.Single(betaMasked.Items).NativeBytes);
+        CheckMask(alphaMasked.LedgerTip);
+        CheckMask(betaMasked.LedgerTip);
+        void CheckMask(IMessage? ledgerTip)
+        {
+            // Both servers currently ignore ReadUtxos masks; retain the selected data checks.
+            if (ledgerTip is not null) output.WriteLine($"{(server.IsDingo ? "Dingo" : "Dolos")} ReadUtxos field mask not honoured: ledger_tip remains.");
+            else Assert.Null(ledgerTip);
+        }
         // Dolos 1.6.3 ignores max_items/start_token: this checks contents, not paging.
         bool compared = await CheckAddressAsync(found.Address);
         if (!compared)
@@ -243,6 +344,82 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
             return true;
             (ByteString Hash, uint Index, ByteString Native)[] Normalize(List<T> items) => items.Select(fields)
                 .OrderBy(item => item.Hash.ToBase64(), StringComparer.Ordinal).ThenBy(item => item.Index).ToArray();
+        }
+    }
+
+    /// <summary>Checks payment, delegation and policy predicates against live output contents and exact-address results.</summary>
+    [Theory]
+    [InlineData("v1alpha")]
+    [InlineData("v1beta")]
+    public async Task UtxoPredicatesAsync(string version)
+    {
+        using CancellationTokenSource timeout = Timeout();
+        CancellationToken ct = timeout.Token;
+        LiveOutput found = await server.FindUnspentOutputAsync(ct, item => item.Address.Length >= 29 && item.Address[0] >> 4 <= 7
+            && item.Assets.Any(group => group.PolicyId.Length == 28));
+        Beta.Cardano.TxOutput unspent = Assert.Single((await Client.V1Beta.Query.ReadUtxosAsync([found.Reference], cancellationToken: ct)).Items).Cardano;
+        ByteString policy = unspent.Assets.First(group => group.PolicyId.Length == 28).PolicyId;
+        ReadOnlyMemory<byte> payment = found.Address.Memory.Slice(1, 28);
+        const int bound = 32;
+        int returnedKinds = 0;
+        var exact = (await SearchAsync("exact", Alpha.Query.UtxoPredicate.Address(exactAddress: found.Address.Memory), Beta.Query.UtxoPredicate.Address(exactAddress: found.Address.Memory))).Items;
+        Assert.NotEmpty(exact);
+        Assert.Contains(exact, item => item.HasPolicy);
+        Assert.All(exact, item => Assert.Equal(found.Address, item.Address));
+        var byPayment = await SearchAsync("payment", Alpha.Query.UtxoPredicate.Address(paymentPart: payment), Beta.Query.UtxoPredicate.Address(paymentPart: payment));
+        if (!byPayment.TimedOut) Assert.NotEmpty(byPayment.Items);
+        Assert.All(byPayment.Items, item => Assert.True(item.Address.Length >= 29 && item.Address.Span.Slice(1, 28).SequenceEqual(payment.Span)));
+        CheckConsistency(byPayment.Items, "payment");
+        if (found.Address.Length == 57 && found.Address[0] >> 4 <= 3)
+        {
+            ReadOnlyMemory<byte> delegation = found.Address.Memory.Slice(29, 28);
+            var byDelegation = await SearchAsync("delegation", Alpha.Query.UtxoPredicate.Address(delegationPart: delegation), Beta.Query.UtxoPredicate.Address(delegationPart: delegation));
+            if (!server.IsDingo && byDelegation.Items.Count == 0)
+                output.WriteLine("Dolos delegation search returned no outputs despite exact-address and payment matches (server gap).");
+            else if (!byDelegation.TimedOut) Assert.NotEmpty(byDelegation.Items);
+            Assert.All(byDelegation.Items, item => Assert.True(item.Address.Length == 57 && item.Address.Span.Slice(29, 28).SequenceEqual(delegation.Span)));
+            CheckConsistency(byDelegation.Items, "delegation");
+        }
+        // Narrow the asset search to the discovered address instead of scanning a server's entire UTxO set.
+        Alpha.Query.UtxoPredicate alphaAsset = Alpha.Query.UtxoPredicate.Match(exactAddress: found.Address.Memory, policyId: policy.Memory);
+        Beta.Query.UtxoPredicate betaAsset = Beta.Query.UtxoPredicate.Match(exactAddress: found.Address.Memory, policyId: policy.Memory);
+        var byAsset = await SearchAsync("asset", alphaAsset, betaAsset);
+        if (!byAsset.TimedOut) Assert.NotEmpty(byAsset.Items);
+        Assert.All(byAsset.Items, item => { Assert.True(item.HasPolicy); Assert.Equal(found.Address, item.Address); });
+        CheckConsistency(byAsset.Items, "asset");
+        if (server.IsDingo && returnedKinds == 0) output.WriteLine($"Dingo {version}: no predicate kind returned any outputs within its single 15-second attempt.");
+        async Task<(List<(ByteString Ref, ByteString Address, ByteString Bytes, bool HasPolicy)> Items, bool TimedOut)> SearchAsync(
+            string kind, Alpha.Query.UtxoPredicate alpha, Beta.Query.UtxoPredicate beta)
+        {
+            using CancellationTokenSource search = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            search.CancelAfter(TimeSpan.FromSeconds(15));
+            long started = Stopwatch.GetTimestamp();
+            List<(ByteString Ref, ByteString Address, ByteString Bytes, bool HasPolicy)> items = [];
+            bool timedOut = false;
+            try
+            {
+                if (version == "v1alpha")
+                    await TakeAsync(Client.V1Alpha.Query.SearchAllUtxosAsync(alpha, pageSize: 4, cancellationToken: search.Token), bound + 1,
+                        item => (item.TxoRef.ToByteString(), item.Cardano.Address, item.NativeBytes, item.Cardano.Assets.Any(group => group.PolicyId == policy)), items);
+                else
+                    await TakeAsync(Client.V1Beta.Query.SearchAllUtxosAsync(beta, pageSize: 4, cancellationToken: search.Token), bound + 1,
+                        item => (item.TxoRef.ToByteString(), item.Cardano.Address, item.NativeBytes, item.Cardano.Assets.Any(group => group.PolicyId == policy)), items);
+            }
+            catch (OperationCanceledException) when (server.IsDingo && kind != "exact" && search.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                // Dingo v0.94.1 api/utxorpc/query.go:574-583 documents full live-UTxO scans for asset-only predicates.
+                timedOut = true;
+                output.WriteLine($"Dingo {version} {kind} predicate server gap: budget expired after {Stopwatch.GetElapsedTime(started).TotalSeconds:F1} s; no retry.");
+            }
+            if (kind != "exact" && items.Count > 0) returnedKinds++;
+            return (items, timedOut);
+        }
+        void CheckConsistency(List<(ByteString Ref, ByteString Address, ByteString Bytes, bool HasPolicy)> matches, string predicate)
+        {
+            // Queries are not atomic snapshots; compare immutable outputs present in both bounded sets.
+            var shared = matches.Join(exact, item => item.Ref, item => item.Ref, (left, right) => (left, right)).ToList();
+            Assert.All(shared, pair => { Assert.Equal(pair.right.Address, pair.left.Address); Assert.Equal(pair.right.Bytes, pair.left.Bytes); });
+            output.WriteLine($"{version} {predicate}: {matches.Count} outputs, {shared.Count} exact-address overlaps; enumeration bound {bound + 1}, page size 4.");
         }
     }
 
@@ -327,6 +504,36 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
         });
     }
 
+    /// <summary>Opens an unfiltered mempool stream and requires cancellation unless the server lacks the RPC.</summary>
+    [Theory]
+    [InlineData("v1alpha")]
+    [InlineData("v1beta")]
+    public async Task WatchMempoolAsync(string version)
+    {
+        using CancellationTokenSource timeout = Timeout();
+        using CancellationTokenSource cancel = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+        cancel.CancelAfter(TimeSpan.FromSeconds(3));
+        int seen = 0;
+        Exception error = await Assert.ThrowsAnyAsync<Exception>(async () =>
+        {
+            if (version == "v1alpha")
+            {
+                await foreach (Alpha.Submit.WatchMempoolResponse _ in Client.V1Alpha.Submit.WatchMempoolAsync(null, cancellationToken: cancel.Token))
+                    if (++seen == 2) cancel.Cancel();
+            }
+            else
+            {
+                await foreach (Beta.Submit.WatchMempoolResponse _ in Client.V1Beta.Submit.WatchMempoolAsync(null, cancellationToken: cancel.Token))
+                    if (++seen == 2) cancel.Cancel();
+            }
+        });
+        if (error is RpcException { StatusCode: StatusCode.Unimplemented })
+            output.WriteLine($"{(server.IsDingo ? "Dingo" : "Dolos")} {version} WatchMempool is unimplemented (server defect).");
+        else Assert.IsAssignableFrom<OperationCanceledException>(error);
+        Assert.False(timeout.IsCancellationRequested);
+        output.WriteLine($"{version} WatchMempool: {seen} events before {error.GetType().Name}.");
+    }
+
     private static byte[] ConfigurationBytes(IMessage message)
     {
         // Map order on the wire is unspecified; deterministic serialization compares the content.
@@ -343,12 +550,13 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
         catch (RpcException error) { return error.StatusCode; }
     }
 
-    internal static async Task<List<T>> TakeAsync<T>(IAsyncEnumerable<T> source, int count)
+    internal static Task<List<T>> TakeAsync<T>(IAsyncEnumerable<T> source, int count) => TakeAsync(source, count, static item => item, []);
+
+    private static async Task<List<TResult>> TakeAsync<T, TResult>(IAsyncEnumerable<T> source, int count, Func<T, TResult> project, List<TResult> items)
     {
-        List<T> items = [];
         await foreach (T item in source)
         {
-            items.Add(item);
+            items.Add(project(item));
             if (items.Count == count) break;
         }
         return items;

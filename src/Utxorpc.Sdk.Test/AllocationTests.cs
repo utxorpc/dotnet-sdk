@@ -35,6 +35,46 @@ public sealed class AllocationTests(ITestOutputHelper output)
             () => plain.V1Beta.Sync.ReadTipAsync(new()).ResponseAsync);
     }
 
+    /// <summary>Requires the always-on invoker to add no allocation without a deadline.</summary>
+    [Fact]
+    public async Task CallsWithoutADeadlineAllocateLikeTheBareClient()
+    {
+        StubChannel channel = new();
+        using UtxorpcClient client = new(channel);
+        Beta.Sync.SyncService.SyncServiceClient bare = new(channel.Invoker);
+        await Compare("raw unary without deadline", () => client.V1Beta.Sync.ReadTipAsync(new Beta.Sync.ReadTipRequest()).ResponseAsync,
+            () => bare.ReadTipAsync(new Beta.Sync.ReadTipRequest()).ResponseAsync);
+        channel.Invoker.StreamMessages = [new Beta.Sync.FollowTipResponse { Apply = new(), Tip = new() }];
+        foreach (int length in new[] { 1, 31 })
+        {
+            channel.Invoker.StreamLength = length;
+            await Compare($"raw stream without deadline, {length} events",
+                () => ReadStream(client.V1Beta.Sync.FollowTip(new Beta.Sync.FollowTipRequest()).ReadAllAsync(), static message => (int)message.ActionCase),
+                () => ReadStream(bare.FollowTip(new Beta.Sync.FollowTipRequest()).ReadAllAsync(), static message => (int)message.ActionCase));
+        }
+    }
+
+    /// <summary>Requires completed deadline calls to pass through and buffered stream reads to add no cost.</summary>
+    [Fact]
+    public async Task DeadlineCallsCostAsDocumented()
+    {
+        StubChannel channel = new();
+        using UtxorpcClient client = new(channel);
+        Beta.Sync.SyncService.SyncServiceClient bare = new(channel.Invoker);
+        DateTime far = DateTime.UtcNow.AddHours(1);
+        await Compare("completed deadline unary", () => client.V1Beta.Sync.ReadTipAsync(new Beta.Sync.ReadTipRequest(), deadline: far).ResponseAsync,
+            () => bare.ReadTipAsync(new Beta.Sync.ReadTipRequest(), deadline: far).ResponseAsync);
+        channel.Invoker.StreamMessages = [new Beta.Sync.FollowTipResponse { Apply = new(), Tip = new() }];
+        foreach (int length in new[] { 1, 31 })
+        {
+            channel.Invoker.StreamLength = length;
+            long sdk = await Measure(() => ReadStream(client.V1Beta.Sync.FollowTip(new Beta.Sync.FollowTipRequest(), deadline: far).ReadAllAsync(), static message => (int)message.ActionCase));
+            long raw = await Measure(() => ReadStream(bare.FollowTip(new Beta.Sync.FollowTipRequest(), deadline: far).ReadAllAsync(), static message => (int)message.ActionCase));
+            output.WriteLine($"deadline raw stream, {length} buffered events: SDK={sdk}, bare={raw} B per 1000 streams.");
+            Assert.Equal(104000, sdk - raw);
+        }
+    }
+
     /// <summary>Requires every unary short method to allocate exactly its raw request's cost.</summary>
     [Theory]
     [InlineData(false)]
@@ -89,6 +129,14 @@ public sealed class AllocationTests(ITestOutputHelper output)
                 request.Ref.Add(new Alpha.Sync.BlockRef { Slot = point.Slot, Hash = UnsafeByteOperations.UnsafeWrap(point.Hash) });
                 return a.Sync.FetchBlockAsync(request).ResponseAsync;
             });
+            BlockPoint[] points = [point, point, point];
+            await Compare("v1alpha.FetchBlock(3 points)", () => a.Sync.FetchBlockAsync(points), () =>
+            {
+                Alpha.Sync.FetchBlockRequest request = new();
+                request.Ref.Capacity = points.Length;
+                foreach (BlockPoint value in points) request.Ref.Add(new Alpha.Sync.BlockRef { Slot = value.Slot, Hash = UnsafeByteOperations.UnsafeWrap(value.Hash) });
+                return a.Sync.FetchBlockAsync(request).ResponseAsync;
+            });
         }
         else
         {
@@ -135,6 +183,14 @@ public sealed class AllocationTests(ITestOutputHelper output)
                 request.Ref.Add(new Beta.Sync.BlockRef { Slot = point.Slot, Hash = UnsafeByteOperations.UnsafeWrap(point.Hash) });
                 return b.Sync.FetchBlockAsync(request).ResponseAsync;
             });
+            BlockPoint[] points = [point, point, point];
+            await Compare("v1beta.FetchBlock(3 points)", () => b.Sync.FetchBlockAsync(points), () =>
+            {
+                Beta.Sync.FetchBlockRequest request = new();
+                request.Ref.Capacity = points.Length;
+                foreach (BlockPoint value in points) request.Ref.Add(new Beta.Sync.BlockRef { Slot = value.Slot, Hash = UnsafeByteOperations.UnsafeWrap(value.Hash) });
+                return b.Sync.FetchBlockAsync(request).ResponseAsync;
+            });
         }
     }
 
@@ -155,6 +211,8 @@ public sealed class AllocationTests(ITestOutputHelper output)
         StubChannel channel = new();
         using UtxorpcClient client = new(channel);
         ReadOnlyMemory<byte> hash = new byte[32];
+        BlockPoint point = new(42, hash);
+        BlockPoint[] points = [point, point, point];
         if (!beta)
         {
             V1AlphaClients a = client.V1Alpha;
@@ -167,6 +225,26 @@ public sealed class AllocationTests(ITestOutputHelper output)
                 [new Alpha.Watch.WatchTxResponse { Apply = new() { Block = new() } }, new Alpha.Watch.WatchTxResponse { Undo = new() { Block = new() } }, new Alpha.Watch.WatchTxResponse { Idle = new() }],
                 () => a.Watch.WatchTxAsync(null, null), () => a.Watch.WatchTx(new Alpha.Watch.WatchTxRequest()),
                 static e => e switch { V1Alpha.TxApplied a => a.Tx.Block.NativeBytes.Length + 1, V1Alpha.TxUndone u => u.Tx.Block.NativeBytes.Length + 1, V1Alpha.Idle i => (int)i.Point.Slot + 1 },
+                static message => (int)message.ActionCase, allocations);
+            await CheckStream("v1alpha.FollowTip(one point)", channel.Invoker,
+                [new Alpha.Sync.FollowTipResponse { Apply = new(), Tip = new() }, new Alpha.Sync.FollowTipResponse { Undo = new(), Tip = new() }, new Alpha.Sync.FollowTipResponse { Reset = new(), Tip = new() }],
+                () => a.Sync.FollowTipAsync(point), () =>
+                {
+                    Alpha.Sync.FollowTipRequest request = new();
+                    request.Intersect.Capacity = 1;
+                    request.Intersect.Add(new Alpha.Sync.BlockRef { Slot = point.Slot, Hash = UnsafeByteOperations.UnsafeWrap(point.Hash) });
+                    return a.Sync.FollowTip(request);
+                }, static e => e switch { V1Alpha.BlockApplied a => a.Block.NativeBytes.Length + 1, V1Alpha.BlockUndone u => u.Block.NativeBytes.Length + 1, V1Alpha.Reset r => (int)r.Point.Slot + 1 },
+                static message => (int)message.ActionCase, allocations);
+            await CheckStream("v1alpha.WatchTx(3 points)", channel.Invoker,
+                [new Alpha.Watch.WatchTxResponse { Apply = new() { Block = new() } }, new Alpha.Watch.WatchTxResponse { Undo = new() { Block = new() } }, new Alpha.Watch.WatchTxResponse { Idle = new() }],
+                () => a.Watch.WatchTxAsync(null, points), () =>
+                {
+                    Alpha.Watch.WatchTxRequest request = new();
+                    request.Intersect.Capacity = points.Length;
+                    foreach (BlockPoint value in points) request.Intersect.Add(new Alpha.Watch.BlockRef { Slot = value.Slot, Hash = UnsafeByteOperations.UnsafeWrap(value.Hash) });
+                    return a.Watch.WatchTx(request);
+                }, static e => e switch { V1Alpha.TxApplied a => a.Tx.Block.NativeBytes.Length + 1, V1Alpha.TxUndone u => u.Tx.Block.NativeBytes.Length + 1, V1Alpha.Idle i => (int)i.Point.Slot + 1 },
                 static message => (int)message.ActionCase, allocations);
             await CheckStream("v1alpha.WaitForTx", channel.Invoker,
                 [new Alpha.Submit.WaitForTxResponse(), new Alpha.Submit.WaitForTxResponse(), new Alpha.Submit.WaitForTxResponse()],
@@ -194,6 +272,26 @@ public sealed class AllocationTests(ITestOutputHelper output)
                 [new Beta.Watch.WatchTxResponse { Apply = new() { Block = new() } }, new Beta.Watch.WatchTxResponse { Undo = new() { Block = new() } }, new Beta.Watch.WatchTxResponse { Idle = new() }],
                 () => b.Watch.WatchTxAsync(null, null), () => b.Watch.WatchTx(new Beta.Watch.WatchTxRequest()),
                 static e => e switch { V1Beta.TxApplied a => a.Tx.Block.NativeBytes.Length + 1, V1Beta.TxUndone u => u.Tx.Block.NativeBytes.Length + 1, V1Beta.Idle i => (int)i.Point.Slot + 1 },
+                static message => (int)message.ActionCase, allocations);
+            await CheckStream("v1beta.FollowTip(one point)", channel.Invoker,
+                [new Beta.Sync.FollowTipResponse { Apply = new(), Tip = new() }, new Beta.Sync.FollowTipResponse { Undo = new(), Tip = new() }, new Beta.Sync.FollowTipResponse { Reset = new(), Tip = new() }],
+                () => b.Sync.FollowTipAsync(point), () =>
+                {
+                    Beta.Sync.FollowTipRequest request = new();
+                    request.Intersect.Capacity = 1;
+                    request.Intersect.Add(new Beta.Sync.BlockRef { Slot = point.Slot, Hash = UnsafeByteOperations.UnsafeWrap(point.Hash) });
+                    return b.Sync.FollowTip(request);
+                }, static e => e switch { V1Beta.BlockApplied a => a.Block.NativeBytes.Length + 1, V1Beta.BlockUndone u => u.Block.NativeBytes.Length + 1, V1Beta.Reset r => (int)r.Point.Slot + 1 },
+                static message => (int)message.ActionCase, allocations);
+            await CheckStream("v1beta.WatchTx(3 points)", channel.Invoker,
+                [new Beta.Watch.WatchTxResponse { Apply = new() { Block = new() } }, new Beta.Watch.WatchTxResponse { Undo = new() { Block = new() } }, new Beta.Watch.WatchTxResponse { Idle = new() }],
+                () => b.Watch.WatchTxAsync(null, points), () =>
+                {
+                    Beta.Watch.WatchTxRequest request = new();
+                    request.Intersect.Capacity = points.Length;
+                    foreach (BlockPoint value in points) request.Intersect.Add(new Beta.Watch.BlockRef { Slot = value.Slot, Hash = UnsafeByteOperations.UnsafeWrap(value.Hash) });
+                    return b.Watch.WatchTx(request);
+                }, static e => e switch { V1Beta.TxApplied a => a.Tx.Block.NativeBytes.Length + 1, V1Beta.TxUndone u => u.Tx.Block.NativeBytes.Length + 1, V1Beta.Idle i => (int)i.Point.Slot + 1 },
                 static message => (int)message.ActionCase, allocations);
             await CheckStream("v1beta.WaitForTx", channel.Invoker,
                 [new Beta.Submit.WaitForTxResponse(), new Beta.Submit.WaitForTxResponse(), new Beta.Submit.WaitForTxResponse()],
@@ -263,16 +361,17 @@ public sealed class AllocationTests(ITestOutputHelper output)
         return GC.GetAllocatedBytesForCurrentThread() - before;
     }
 
-    private sealed class StubChannel() : ChannelBase("allocation-test")
+    internal sealed class StubChannel() : ChannelBase("allocation-test")
     {
         internal StubInvoker Invoker { get; } = new();
         /// <summary>Returns the caller-owned cached-response invoker.</summary>
         public override CallInvoker CreateCallInvoker() => Invoker;
     }
 
-    private sealed class StubInvoker : CallInvoker
+    internal sealed class StubInvoker : CallInvoker
     {
         internal Metadata? LastHeaders;
+        internal bool Cancelled;
         internal object[] StreamMessages = [];
         internal int StreamLength = 3, StreamCalls, StreamDisposals;
         private static readonly Task<Metadata> Headers = Task.FromResult(Metadata.Empty);
@@ -281,7 +380,8 @@ public sealed class AllocationTests(ITestOutputHelper output)
             Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
         {
             LastHeaders = options.Headers;
-            return Answer<TResponse>.Call;
+            return Cancelled ? new(Task.FromCanceled<TResponse>(new CancellationToken(true)), Headers,
+                static () => Status.DefaultSuccess, static () => Metadata.Empty, static () => { }) : Answer<TResponse>.Call;
         }
 
         /// <summary>Rejects blocking calls, which these measurements do not use.</summary>
@@ -292,7 +392,7 @@ public sealed class AllocationTests(ITestOutputHelper output)
             Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
         {
             StreamCalls++;
-            return new(new StubReader<TResponse>(StreamMessages, StreamLength), static _ => Headers,
+            return new(new StubReader<TResponse>(StreamMessages, Cancelled ? -1 : StreamLength), static _ => Headers,
                 static _ => Status.DefaultSuccess, static _ => Metadata.Empty, static state => ((StubInvoker)state).StreamDisposals++, this);
         }
         /// <summary>Rejects client streams, which these unary measurements do not use.</summary>
@@ -309,7 +409,8 @@ public sealed class AllocationTests(ITestOutputHelper output)
         /// <summary>Gets the message at the current position.</summary>
         public T Current => (T)messages[(index - 1) % messages.Length];
         /// <summary>Advances synchronously through the repeated messages with cached completed tasks.</summary>
-        public Task<bool> MoveNext(CancellationToken cancellationToken) => Task.FromResult(++index <= length);
+        public Task<bool> MoveNext(CancellationToken cancellationToken) => length < 0
+            ? Task.FromCanceled<bool>(new CancellationToken(true)) : Task.FromResult(++index <= length);
     }
 
     private static class Answer<T> where T : class

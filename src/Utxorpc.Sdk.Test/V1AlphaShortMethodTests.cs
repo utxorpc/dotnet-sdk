@@ -454,6 +454,81 @@ public sealed class V1AlphaShortMethodTests : IAsyncLifetime
         }
     }
 
+    /// <summary>Copies several request values in order and reuses them on each stream enumeration.</summary>
+    [Fact]
+    public async Task SeveralValuesReachTheServerInOrder()
+    {
+        byte[] h1 = [1], h2 = [2], h3 = [3];
+        BlockPoint p1 = new(1, h1), p2 = new(2, h2), p3 = new(3, h3);
+        BlockPoint[] points = [p3, p1, p2];
+        FieldMask mask = FieldMask.FromString("native_bytes");
+        server.State.BlockBytes = [];
+        await client.V1Alpha.Sync.FetchBlockAsync([p3, p1, p2], mask, Token);
+        Sync.FetchBlockRequest fetch = TakeRequest<Sync.FetchBlockRequest>();
+        Check(fetch.Ref.Select(point => (point.Slot, point.Hash)));
+        Assert.Equal(mask, fetch.FieldMask);
+        IAsyncEnumerable<V1Alpha.FollowTipEvent> twice = client.V1Alpha.Sync.FollowTipAsync([p3, p1, p2], mask, Token);
+        for (int i = 0; i < 2; i++)
+        {
+            await foreach (V1Alpha.FollowTipEvent _ in twice) break;
+            Sync.FollowTipRequest follow = TakeRequest<Sync.FollowTipRequest>();
+            Check(follow.Intersect.Select(point => (point.Slot, point.Hash)));
+            Assert.Equal(mask, follow.FieldMask);
+        }
+        await foreach (V1Alpha.WatchTxEvent _ in client.V1Alpha.Watch.WatchTxAsync(null, points, mask, Token)) break;
+        Watch.WatchTxRequest watch = TakeRequest<Watch.WatchTxRequest>();
+        Check(watch.Intersect.Select(point => (point.Slot, point.Hash)));
+        Assert.Equal(mask, watch.FieldMask);
+        await foreach (Submit.WaitForTxResponse _ in client.V1Alpha.Submit.WaitForTxAsync([h3, h1, h2], Token)) break;
+        Assert.Equal(new[] { ByteString.CopyFrom(h3), ByteString.CopyFrom(h1), ByteString.CopyFrom(h2) }, TakeRequest<Submit.WaitForTxRequest>().Ref);
+        Assert.Empty(server.State.Requests);
+        void Check(IEnumerable<(ulong Slot, ByteString Hash)> actual) => Assert.Equal(
+            points.Select(point => (point.Slot, ByteString.CopyFrom(point.Hash.Span))), actual);
+    }
+
+    /// <summary>Keeps nullable, default, scalar and argument-free calls bound to their original meaning.</summary>
+    [Fact]
+    public async Task NullDefaultAndOnePointKeepTheirMeaning()
+    {
+        BlockPoint point = new(7, new byte[] { 1, 2 });
+        BlockPoint? none = null, some = point;
+        FieldMask mask = FieldMask.FromString("native_bytes");
+        (IAsyncEnumerable<V1Alpha.FollowTipEvent> Stream, int Count)[] follows = [
+            (client.V1Alpha.Sync.FollowTipAsync(null, mask, Token), 0), (client.V1Alpha.Sync.FollowTipAsync(default, mask, Token), 0),
+            (client.V1Alpha.Sync.FollowTipAsync(from: null, cancellationToken: Token), 0), (client.V1Alpha.Sync.FollowTipAsync(none, mask, Token), 0),
+            (client.V1Alpha.Sync.FollowTipAsync([], mask, Token), 0), (client.V1Alpha.Sync.FollowTipAsync(some, mask, Token), 1),
+            (client.V1Alpha.Sync.FollowTipAsync(new BlockPoint(7, point.Hash), mask, Token), 1),
+            (client.V1Alpha.Sync.FollowTipAsync(), 0), (client.V1Alpha.Sync.FollowTipAsync(cancellationToken: Token), 0)];
+        foreach (var (stream, count) in follows)
+        {
+            await foreach (V1Alpha.FollowTipEvent _ in stream.WithCancellation(Token)) break;
+            Assert.Equal(count, TakeRequest<Sync.FollowTipRequest>().Intersect.Count);
+        }
+        (IAsyncEnumerable<V1Alpha.WatchTxEvent> Stream, int Count)[] watches = [
+            (client.V1Alpha.Watch.WatchTxAsync(null, null, mask, Token), 0), (client.V1Alpha.Watch.WatchTxAsync(null, default, mask, Token), 0),
+            (client.V1Alpha.Watch.WatchTxAsync(null, point, mask, Token), 1), (client.V1Alpha.Watch.WatchTxAsync(), 0)];
+        foreach (var (stream, count) in watches)
+        {
+            await foreach (V1Alpha.WatchTxEvent _ in stream.WithCancellation(Token)) break;
+            Watch.WatchTxRequest request = TakeRequest<Watch.WatchTxRequest>();
+            Assert.Equal(count, request.Intersect.Count);
+            Assert.Null(request.Predicate);
+        }
+        server.State.BlockBytes = [];
+        await client.V1Alpha.Sync.FetchBlockAsync(default, mask, Token);
+        Sync.BlockRef fetched = Assert.Single(TakeRequest<Sync.FetchBlockRequest>().Ref);
+        Assert.Equal(0UL, fetched.Slot);
+        Assert.True(fetched.Hash.IsEmpty);
+        await foreach (Submit.WaitForTxResponse _ in client.V1Alpha.Submit.WaitForTxAsync(default, Token)) break;
+        Assert.True(Assert.Single(TakeRequest<Submit.WaitForTxRequest>().Ref).IsEmpty);
+        byte[] hash = [3, 4];
+        await foreach (Submit.WaitForTxResponse _ in client.V1Alpha.Submit.WaitForTxAsync(hash, Token)) break;
+        Assert.Equal(ByteString.CopyFrom(hash), Assert.Single(TakeRequest<Submit.WaitForTxRequest>().Ref));
+        await foreach (Submit.WatchMempoolResponse _ in client.V1Alpha.Submit.WatchMempoolAsync().WithCancellation(Token)) break;
+        Assert.Null(TakeRequest<Submit.WatchMempoolRequest>().Predicate);
+        Assert.Empty(server.State.Requests);
+    }
+
     private T TakeRequest<T>() where T : class, IMessage
     {
         Assert.True(server.State.Requests.TryDequeue(out IMessage? request));

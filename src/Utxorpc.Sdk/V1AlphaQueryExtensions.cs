@@ -8,11 +8,15 @@ namespace Utxorpc.Sdk;
 /// <summary>Provides plain .NET inputs for the v1alpha query client.</summary>
 public static class V1AlphaQueryExtensions
 {
-    /// <summary>Reads the current chain parameters.</summary>
+    /// <include file="Docs.xml" path="docs/member[@name='ReadParamsAsync']/*"/>
+    /// <include file="Docs.xml" path="docs/call/*"/>
+    /// <include file="Docs.xml" path="docs/mask/*"/>
     public static Task<ReadParamsResponse> ReadParamsAsync(this QueryService.QueryServiceClient client, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
         client.ReadParamsAsync(new ReadParamsRequest { FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync;
 
-    /// <summary>Reads outputs without copying hash memory; it must not change until the returned task completes.</summary>
+    /// <include file="Docs.xml" path="docs/member[@name='ReadUtxosAsync']/*"/>
+    /// <include file="Docs.xml" path="docs/call/*"/>
+    /// <include file="Docs.xml" path="docs/mask/*"/>
     public static Task<ReadUtxosResponse> ReadUtxosAsync(this QueryService.QueryServiceClient client, ReadOnlySpan<OutputReference> references, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
     {
         ReadUtxosRequest request = new() { FieldMask = fieldMask };
@@ -24,8 +28,10 @@ public static class V1AlphaQueryExtensions
         return client.ReadUtxosAsync(request, cancellationToken: cancellationToken).ResponseAsync;
     }
 
-    /// <summary>Reads every matching output across all result pages.</summary>
-    /// <remarks>Page size 0 lets the server choose; a negative one throws.</remarks>
+    /// <include file="Docs.xml" path="docs/member[@name='SearchAllUtxosAsync']/*[not(self::remarks)]"/>
+    /// <include file="Docs.xml" path="docs/stream/*[not(self::remarks)]"/>
+    /// <include file="Docs.xml" path="docs/mask/*"/>
+    /// <remarks><include file="Docs.xml" path="docs/member[@name='SearchAllUtxosAsync']/remarks/*"/> <include file="Docs.xml" path="docs/stream/remarks/*"/></remarks>
     public static IAsyncEnumerable<AnyUtxoData> SearchAllUtxosAsync(this QueryService.QueryServiceClient client, UtxoPredicate predicate, int pageSize = 0, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(pageSize);
@@ -43,23 +49,34 @@ public static class V1AlphaQueryExtensions
             cancellationToken);
     }
 
-    /// <summary>Reads outputs at an exact address; its memory must not change until enumeration ends.</summary>
+    /// <include file="Docs.xml" path="docs/member[@name='SearchUtxosByAddressAsync']/*[not(self::remarks)]"/>
+    /// <include file="Docs.xml" path="docs/stream/*[not(self::remarks)]"/>
+    /// <include file="Docs.xml" path="docs/mask/*"/>
+    /// <remarks><include file="Docs.xml" path="docs/member[@name='SearchUtxosByAddressAsync']/remarks/*"/> <include file="Docs.xml" path="docs/stream/remarks/*"/></remarks>
     public static IAsyncEnumerable<AnyUtxoData> SearchUtxosByAddressAsync(this QueryService.QueryServiceClient client, ReadOnlyMemory<byte> address, int pageSize = 0, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
         client.SearchAllUtxosAsync(UtxoPredicate.Address(exactAddress: address), pageSize, fieldMask, cancellationToken);
 
-    /// <summary>Reads a transaction without copying hash memory; it must not change until the returned task completes.</summary>
+    /// <include file="Docs.xml" path="docs/member[@name='ReadTxAsync']/*"/>
+    /// <include file="Docs.xml" path="docs/call/*"/>
+    /// <include file="Docs.xml" path="docs/mask/*"/>
     public static Task<ReadTxResponse> ReadTxAsync(this QueryService.QueryServiceClient client, ReadOnlyMemory<byte> txHash, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
         client.ReadTxAsync(new ReadTxRequest { Hash = UnsafeByteOperations.UnsafeWrap(txHash), FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync;
 
-    /// <summary>Reads the chain's genesis configuration.</summary>
+    /// <include file="Docs.xml" path="docs/member[@name='ReadGenesisAsync']/*"/>
+    /// <include file="Docs.xml" path="docs/call/*"/>
+    /// <include file="Docs.xml" path="docs/mask/*"/>
     public static Task<ReadGenesisResponse> ReadGenesisAsync(this QueryService.QueryServiceClient client, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
         client.ReadGenesisAsync(new ReadGenesisRequest { FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync;
 
-    /// <summary>Reads the chain's era summaries.</summary>
+    /// <include file="Docs.xml" path="docs/member[@name='ReadEraSummaryAsync']/*"/>
+    /// <include file="Docs.xml" path="docs/call/*"/>
+    /// <include file="Docs.xml" path="docs/mask/*"/>
     public static Task<ReadEraSummaryResponse> ReadEraSummaryAsync(this QueryService.QueryServiceClient client, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
         client.ReadEraSummaryAsync(new ReadEraSummaryRequest { FieldMask = fieldMask }, cancellationToken: cancellationToken).ResponseAsync;
 
-    /// <summary>Reads data without copying hash memory; it must not change until the returned task completes.</summary>
+    /// <include file="Docs.xml" path="docs/member[@name='ReadDataAsync']/*"/>
+    /// <include file="Docs.xml" path="docs/call/*"/>
+    /// <include file="Docs.xml" path="docs/mask/*"/>
     public static Task<ReadDataResponse> ReadDataAsync(this QueryService.QueryServiceClient client, ReadOnlySpan<ReadOnlyMemory<byte>> datumHashes, FieldMask? fieldMask = null, CancellationToken cancellationToken = default)
     {
         ReadDataRequest request = new() { FieldMask = fieldMask };
@@ -73,15 +90,26 @@ public static class V1AlphaQueryExtensions
 
     extension(UtxoPredicate)
     {
-        /// <summary>Matches an output's address; byte memory is wrapped, not copied, and must not change while the predicate is in use.</summary>
+        /// <include file="Docs.xml" path="docs/member[@name='UtxoPredicate.Match']/*"/>
+        /// <include file="Docs.xml" path="docs/address/*"/>
+        /// <include file="Docs.xml" path="docs/asset/*"/>
+        /// <include file="Docs.xml" path="docs/predicate/*"/>
+        public static UtxoPredicate Match(ReadOnlyMemory<byte> exactAddress = default, ReadOnlyMemory<byte> paymentPart = default, ReadOnlyMemory<byte> delegationPart = default, ReadOnlyMemory<byte> policyId = default, ReadOnlyMemory<byte> assetName = default) =>
+            new() { Match = new() { Cardano = Predicates.V1AlphaOutput(exactAddress, paymentPart, delegationPart, policyId, assetName) } };
+
+        /// <include file="Docs.xml" path="docs/member[@name='UtxoPredicate.Address']/*"/>
+        /// <include file="Docs.xml" path="docs/address/*"/>
+        /// <include file="Docs.xml" path="docs/predicate/*"/>
         public static UtxoPredicate Address(ReadOnlyMemory<byte> exactAddress = default, ReadOnlyMemory<byte> paymentPart = default, ReadOnlyMemory<byte> delegationPart = default) =>
             new() { Match = new() { Cardano = new() { Address = Predicates.V1AlphaAddress(exactAddress, paymentPart, delegationPart) } } };
 
-        /// <summary>Matches an output's asset; byte memory is wrapped, not copied, and must not change while the predicate is in use. An empty name means any name; for an asset whose name is empty, build the v1beta pattern with AssetName = ByteString.Empty (v1alpha cannot express it).</summary>
+        /// <include file="Docs.xml" path="docs/member[@name='UtxoPredicate.Asset']/*"/>
+        /// <include file="Docs.xml" path="docs/asset/*"/>
+        /// <include file="Docs.xml" path="docs/predicate/*"/>
         public static UtxoPredicate Asset(ReadOnlyMemory<byte> policyId = default, ReadOnlyMemory<byte> assetName = default) =>
             new() { Match = new() { Cardano = new() { Asset = Predicates.V1AlphaAsset(policyId, assetName) } } };
 
-        /// <summary>Matches when all supplied predicates match.</summary>
+        /// <include file="Docs.xml" path="docs/member[@name='AllOf']/*"/>
         public static UtxoPredicate AllOf(params ReadOnlySpan<UtxoPredicate> predicates)
         {
             UtxoPredicate result = new();
@@ -89,7 +117,7 @@ public static class V1AlphaQueryExtensions
             return result;
         }
 
-        /// <summary>Matches when any supplied predicate matches.</summary>
+        /// <include file="Docs.xml" path="docs/member[@name='AnyOf']/*"/>
         public static UtxoPredicate AnyOf(params ReadOnlySpan<UtxoPredicate> predicates)
         {
             UtxoPredicate result = new();
@@ -97,7 +125,7 @@ public static class V1AlphaQueryExtensions
             return result;
         }
 
-        /// <summary>Matches when the supplied predicate does not match.</summary>
+        /// <include file="Docs.xml" path="docs/member[@name='Not']/*"/>
         public static UtxoPredicate Not(UtxoPredicate predicate)
         {
             UtxoPredicate result = new();

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
@@ -11,29 +12,46 @@ namespace Utxorpc.Sdk;
 /// <summary>Provides plain .NET inputs for the v1alpha submission client.</summary>
 public static class V1AlphaSubmitExtensions
 {
-    /// <summary>Submits bytes without copying their memory; it must not change until the returned task completes.</summary>
+    /// <include file="Docs.xml" path="docs/member[@name='SubmitTxAsync']/*"/>
+    /// <include file="Docs.xml" path="docs/call/*"/>
     public static Task<SubmitTxResponse> SubmitTxAsync(this SubmitService.SubmitServiceClient client, ReadOnlyMemory<byte> tx, CancellationToken cancellationToken = default) =>
         client.SubmitTxAsync(new SubmitTxRequest { Tx = new() { Raw = UnsafeByteOperations.UnsafeWrap(tx) } }, cancellationToken: cancellationToken).ResponseAsync;
 
-    /// <summary>Watches a transaction; hash memory must not change until enumeration ends.</summary>
-    public static IAsyncEnumerable<WaitForTxResponse> WaitForTxAsync(this SubmitService.SubmitServiceClient client, ReadOnlyMemory<byte> txHash, CancellationToken cancellationToken = default)
+    /// <include file="Docs.xml" path="docs/member[@name='WaitForTxAsync']/*[not(self::remarks)]"/>
+    /// <include file="Docs.xml" path="docs/stream/*[not(self::remarks)]"/>
+    /// <remarks><include file="Docs.xml" path="docs/member[@name='WaitForTxAsync']/remarks/*"/> <include file="Docs.xml" path="docs/stream/remarks/*"/></remarks>
+    [OverloadResolutionPriority(1)]
+    public static IAsyncEnumerable<WaitForTxResponse> WaitForTxAsync(this SubmitService.SubmitServiceClient client, ReadOnlyMemory<byte> txHash, CancellationToken cancellationToken = default) =>
+        client.WaitForTxAsync(new ReadOnlySpan<ReadOnlyMemory<byte>>(in txHash), cancellationToken);
+
+    /// <include file="Docs.xml" path="docs/member[@name='WaitForTxAsync(txHashes)']/*[not(self::remarks)]"/>
+    /// <include file="Docs.xml" path="docs/stream/*[not(self::remarks)]"/>
+    /// <remarks><include file="Docs.xml" path="docs/member[@name='WaitForTxAsync(txHashes)']/remarks/*"/> <include file="Docs.xml" path="docs/stream/remarks/*"/></remarks>
+    public static IAsyncEnumerable<WaitForTxResponse> WaitForTxAsync(this SubmitService.SubmitServiceClient client, ReadOnlySpan<ReadOnlyMemory<byte>> txHashes, CancellationToken cancellationToken = default)
     {
         WaitForTxRequest request = new();
-        request.Ref.Capacity = 1;
-        request.Ref.Add(UnsafeByteOperations.UnsafeWrap(txHash));
+        request.Ref.Capacity = txHashes.Length;
+        for (int i = 0; i < txHashes.Length; i++)
+        {
+            request.Ref.Add(UnsafeByteOperations.UnsafeWrap(txHashes[i]));
+        }
         return ServerStream.ReadAllAsync<WaitForTxCall, WaitForTxResponse, WaitForTxResponse, WaitForTxStream>((client, request), cancellationToken);
     }
 
-    /// <summary>Evaluates transaction bytes without copying their memory; it must not change until the returned task completes.</summary>
+    /// <include file="Docs.xml" path="docs/member[@name='EvalTxAsync']/*"/>
+    /// <include file="Docs.xml" path="docs/call/*"/>
     public static Task<EvalTxResponse> EvalTxAsync(this SubmitService.SubmitServiceClient client, ReadOnlyMemory<byte> tx, CancellationToken cancellationToken = default) =>
         client.EvalTxAsync(new EvalTxRequest { Tx = new() { Raw = UnsafeByteOperations.UnsafeWrap(tx) } }, cancellationToken: cancellationToken).ResponseAsync;
 
-    /// <summary>Reads the transactions currently in the mempool.</summary>
+    /// <include file="Docs.xml" path="docs/member[@name='ReadMempoolAsync']/*"/>
+    /// <include file="Docs.xml" path="docs/call/*"/>
     public static Task<ReadMempoolResponse> ReadMempoolAsync(this SubmitService.SubmitServiceClient client, CancellationToken cancellationToken = default) =>
         client.ReadMempoolAsync(new ReadMempoolRequest(), cancellationToken: cancellationToken).ResponseAsync;
 
-    /// <summary>Watches mempool changes matching the predicate, or all changes when it is null.</summary>
-    public static IAsyncEnumerable<WatchMempoolResponse> WatchMempoolAsync(this SubmitService.SubmitServiceClient client, TxPredicate? predicate, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
+    /// <include file="Docs.xml" path="docs/member[@name='WatchMempoolAsync']/*"/>
+    /// <include file="Docs.xml" path="docs/stream/*"/>
+    /// <include file="Docs.xml" path="docs/mask/*"/>
+    public static IAsyncEnumerable<WatchMempoolResponse> WatchMempoolAsync(this SubmitService.SubmitServiceClient client, TxPredicate? predicate = null, FieldMask? fieldMask = null, CancellationToken cancellationToken = default) =>
         ServerStream.ReadAllAsync<WatchMempoolCall, WatchMempoolResponse, WatchMempoolResponse, WatchMempoolStream>(
             (client, new WatchMempoolRequest { Predicate = predicate, FieldMask = fieldMask }), cancellationToken);
 
@@ -55,15 +73,46 @@ public static class V1AlphaSubmitExtensions
 
     extension(TxPredicate)
     {
-        /// <summary>Matches any address a transaction touches in inputs, outputs or collateral; byte memory is wrapped, not copied, and must not change while the predicate is in use.</summary>
+        /// <include file="Docs.xml" path="docs/member[@name='TxPredicate.HasAddress']/*"/>
+        /// <include file="Docs.xml" path="docs/address/*"/>
+        /// <include file="Docs.xml" path="docs/predicate/*[not(self::remarks)]"/>
+        /// <remarks><include file="Docs.xml" path="docs/predicate/remarks/*"/> <include file="Docs.xml" path="docs/member[@name='oneOutput']/remarks/*"/></remarks>
         public static TxPredicate HasAddress(ReadOnlyMemory<byte> exactAddress = default, ReadOnlyMemory<byte> paymentPart = default, ReadOnlyMemory<byte> delegationPart = default) =>
             new() { Match = new() { Cardano = new() { HasAddress = Predicates.V1AlphaAddress(exactAddress, paymentPart, delegationPart) } } };
 
-        /// <summary>Matches an asset a transaction moves; byte memory is wrapped, not copied, and must not change while the predicate is in use. An empty name means any name; for an asset whose name is empty, build the v1beta pattern with AssetName = ByteString.Empty (v1alpha cannot express it).</summary>
+        /// <include file="Docs.xml" path="docs/member[@name='TxPredicate.MovesAsset']/*"/>
+        /// <include file="Docs.xml" path="docs/asset/*"/>
+        /// <include file="Docs.xml" path="docs/predicate/*"/>
         public static TxPredicate MovesAsset(ReadOnlyMemory<byte> policyId = default, ReadOnlyMemory<byte> assetName = default) =>
             new() { Match = new() { Cardano = new() { MovesAsset = Predicates.V1AlphaAsset(policyId, assetName) } } };
 
-        /// <summary>Matches when all supplied predicates match.</summary>
+        /// <include file="Docs.xml" path="docs/member[@name='TxPredicate.Consumes']/*"/>
+        /// <include file="Docs.xml" path="docs/address/*"/>
+        /// <include file="Docs.xml" path="docs/asset/*"/>
+        /// <include file="Docs.xml" path="docs/predicate/*[not(self::remarks)]"/>
+        /// <remarks><include file="Docs.xml" path="docs/predicate/remarks/*"/> <include file="Docs.xml" path="docs/member[@name='oneOutput']/remarks/*"/></remarks>
+        public static TxPredicate Consumes(ReadOnlyMemory<byte> exactAddress = default, ReadOnlyMemory<byte> paymentPart = default, ReadOnlyMemory<byte> delegationPart = default, ReadOnlyMemory<byte> policyId = default, ReadOnlyMemory<byte> assetName = default) =>
+            new() { Match = new() { Cardano = new() { Consumes = Predicates.V1AlphaOutput(exactAddress, paymentPart, delegationPart, policyId, assetName) } } };
+
+        /// <include file="Docs.xml" path="docs/member[@name='TxPredicate.Produces']/*"/>
+        /// <include file="Docs.xml" path="docs/address/*"/>
+        /// <include file="Docs.xml" path="docs/asset/*"/>
+        /// <include file="Docs.xml" path="docs/predicate/*[not(self::remarks)]"/>
+        /// <remarks><include file="Docs.xml" path="docs/predicate/remarks/*"/> <include file="Docs.xml" path="docs/member[@name='oneOutput']/remarks/*"/></remarks>
+        public static TxPredicate Produces(ReadOnlyMemory<byte> exactAddress = default, ReadOnlyMemory<byte> paymentPart = default, ReadOnlyMemory<byte> delegationPart = default, ReadOnlyMemory<byte> policyId = default, ReadOnlyMemory<byte> assetName = default) =>
+            new() { Match = new() { Cardano = new() { Produces = Predicates.V1AlphaOutput(exactAddress, paymentPart, delegationPart, policyId, assetName) } } };
+
+        /// <include file="Docs.xml" path="docs/member[@name='TxPredicate.MintsAsset']/*"/>
+        /// <include file="Docs.xml" path="docs/asset/*"/>
+        /// <include file="Docs.xml" path="docs/predicate/*"/>
+        public static TxPredicate MintsAsset(ReadOnlyMemory<byte> policyId = default, ReadOnlyMemory<byte> assetName = default) =>
+            new() { Match = new() { Cardano = new() { MintsAsset = Predicates.V1AlphaAsset(policyId, assetName) } } };
+
+        /// <include file="Docs.xml" path="docs/member[@name='TxPredicate.HasCertificate']/*"/>
+        public static TxPredicate HasCertificate(Utxorpc.V1Alpha.Cardano.CertificatePattern pattern) =>
+            new() { Match = new() { Cardano = new() { HasCertificate = pattern ?? throw new ArgumentNullException(nameof(pattern)) } } };
+
+        /// <include file="Docs.xml" path="docs/member[@name='AllOf']/*"/>
         public static TxPredicate AllOf(params ReadOnlySpan<TxPredicate> predicates)
         {
             TxPredicate result = new();
@@ -71,7 +120,7 @@ public static class V1AlphaSubmitExtensions
             return result;
         }
 
-        /// <summary>Matches when any supplied predicate matches.</summary>
+        /// <include file="Docs.xml" path="docs/member[@name='AnyOf']/*"/>
         public static TxPredicate AnyOf(params ReadOnlySpan<TxPredicate> predicates)
         {
             TxPredicate result = new();
@@ -79,7 +128,7 @@ public static class V1AlphaSubmitExtensions
             return result;
         }
 
-        /// <summary>Matches when the supplied predicate does not match.</summary>
+        /// <include file="Docs.xml" path="docs/member[@name='Not']/*"/>
         public static TxPredicate Not(TxPredicate predicate)
         {
             TxPredicate result = new();

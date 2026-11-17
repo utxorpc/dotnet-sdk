@@ -9,7 +9,7 @@
     <UtxorpcSpecVersion Condition="'$(UtxorpcSpecVersion)' == ''">0.19.2-alpha</UtxorpcSpecVersion>
     <Authors>clark@txpipe.io</Authors>
     <Company>TxPipe LLC</Company>
-    <PackageDescription>Client for UTxO RPC (v1alpha and v1beta) over gRPC.</PackageDescription>
+    <PackageDescription>Requires .NET 11. Client for UTxO RPC (v1alpha and v1beta) over gRPC.</PackageDescription>
     <RepositoryUrl>https://github.com/utxorpc/dotnet-sdk</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>

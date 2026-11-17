@@ -19,6 +19,9 @@ public sealed class UtxorpcClientOptions
     /// <summary>Gets or sets the silence before an active connection is pinged; defaults to 60 seconds, or infinite to disable.</summary>
     public TimeSpan KeepAliveInterval { get; set; } = TimeSpan.FromSeconds(60);
 
+    /// <summary>Gets or sets the time each unary call without its own deadline may take, retries included; defaults to infinite (no timeout). Server streams never get it.</summary>
+    public TimeSpan DefaultTimeout { get; set; } = Timeout.InfiniteTimeSpan;
+
     /// <summary>Gets or sets a callback that can change or replace the channel defaults.</summary>
     public Action<GrpcChannelOptions>? ConfigureChannel { get; set; }
 }
