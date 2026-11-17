@@ -25,8 +25,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Utxorpc.Spec" Version="$(UtxorpcSpecVersion)" />
     <PackageReference Include="Grpc.Net.Client" Version="2.85.0" />
+    <PackageReference Include="Grpc.Net.Client.Web" Version="2.85.0" />
     <PackageReference Include="Google.Protobuf" Version="3.36.2" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="11.0.0" />
   </ItemGroup>

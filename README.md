@@ -24,7 +24,7 @@ Requires .NET 11. Utxorpc.Sdk is a .NET client for UTxO RPC. One `UtxorpcClient`
 dotnet add package Utxorpc.Sdk --version 2.0.0-alpha
 ```
 
-Requires .NET 11: the package targets net11.0 only and depends on Utxorpc.Spec 0.19.2-alpha or newer, Grpc.Net.Client 2.85.0, Google.Protobuf 3.36.2 and Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions 11.0.0. ASP.NET Core apps already have the health-check abstractions. On .NET 10, stay on Utxorpc.Sdk 1.8.0-alpha, or reference Utxorpc.Spec 0.19.2-alpha (which targets net10.0) and use its generated clients over your own `GrpcChannel`.
+Requires .NET 11: the package targets net11.0 only and depends on Utxorpc.Spec 0.19.2-alpha or newer, Grpc.Net.Client 2.85.0, Grpc.Net.Client.Web 2.85.0, Google.Protobuf 3.36.2 and Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions 11.0.0. ASP.NET Core apps already have the health-check abstractions. On .NET 10, stay on Utxorpc.Sdk 1.8.0-alpha, or reference Utxorpc.Spec 0.19.2-alpha (which targets net10.0) and use its generated clients over your own `GrpcChannel`.
 
 ## Quick start
 
@@ -210,7 +210,7 @@ Use v1beta for new code, or v1alpha for servers that have not moved. `u5c.V1Beta
 
 ## Connecting
 
-Use `new UtxorpcClient(url, headers)` or the options constructor. Retry and keep-alive are both on by default. To turn both off:
+Use `new UtxorpcClient(url, headers)` or the options constructor. Retry and keep-alive (outside a browser) are both on by default. To turn both off:
 
 ```csharp
 UtxorpcClientOptions options = new() { Url = url, MaxAttempts = 1, KeepAliveInterval = Timeout.InfiniteTimeSpan };
@@ -225,7 +225,7 @@ Unary calls failing with `Unavailable` are tried up to `MaxAttempts` (default 3)
 
 Default retry costs about 1.2 KB more per unary call (1,139–1,227 bytes measured), nothing per stream message. Turn it off in hot loops such as fetching block after block.
 
-When a connection with an open call receives nothing for `KeepAliveInterval` (default 60 s), a ping checks it; a ping unanswered for 30 s ends the open calls, so a dead connection is noticed after the interval plus 30 s.
+Outside a browser, when a connection with an open call receives nothing for `KeepAliveInterval` (default 60 s), a ping checks it; a ping unanswered for 30 s ends the open calls, so a dead connection is noticed after the interval plus 30 s.
 
 `ConfigureChannel` runs last and may change, wrap or replace any channel option. A handler or `HttpClient` you put there stays yours to dispose; the client disposes only the channel and handler it created. Or pass your own `ChannelBase`: you keep and dispose it, and none of these defaults apply. Set `ThrowOperationCanceledOnCancellation = true` on your channel's options to get `OperationCanceledException` on cancellation.
 
@@ -266,6 +266,37 @@ builder.Services.AddHealthChecks().Add(new HealthCheckRegistration("preprod", pr
 ```
 
 The check reads the v1beta tip, falling back to v1alpha when v1beta is unsupported, and reports `tip slot N` or the registration's failure status with the error. Every check tries v1beta again. The time limit also covers a server that accepts the connection and never answers.
+
+### In the browser (Blazor WebAssembly)
+
+The client works in Blazor WebAssembly with no setting: it uses binary gRPC-Web there, including streams.
+The server must speak gRPC-Web and allow the page's origin; Dolos and Dingo do by default.
+
+`KeepAliveInterval` and the connect timeout do not apply in a browser, which offers neither.
+A deadline or `DefaultTimeout` is the only limit on a unary call that gets no answer.
+
+A server that cannot be reached or refuses the page's origin is reported by gRPC as `Internal`;
+the browser does not say which, so `MaxAttempts` does not retry it.
+Its `Kind` is `Unavailable` and `IsTransient` is true, so FollowTip and WatchTx reconnect when `ResumeOnFailure` is enabled.
+An https page can call only https servers (localhost excepted).
+
+Dingo v0.94.1 compresses answers of 1 KiB and more, but its CORS setup hides the header that says so.
+Calls with such answers, for example `ReadParamsAsync` and `FollowTipAsync`, fail there with `Internal` until the caller turns compression off:
+
+```csharp
+UtxorpcClientOptions browserOptions = new() { Url = url, ConfigureChannel = o => o.CompressionProviders = [] };
+```
+
+Hosted endpoints that need an API key in a header (for example Demeter) were not verified from a browser.
+Any API key a page sends is visible to the page's users.
+
+The sample in `examples/Browser` shows the tip and incoming blocks, with a "No compression" tick box.
+It is not part of the solution:
+
+```bash
+dotnet build examples/Browser
+dotnet run --project examples/Browser
+```
 
 ## Streams and cancellation
 
@@ -374,7 +405,7 @@ catch (OperationCanceledException)
 }
 ```
 
-On a channel the SDK creates, a host that does not answer a connection attempt fails with `Unavailable` after 15 s per attempt (3 attempts by default). On your own channel, the handler's `ConnectTimeout` applies if you set one; otherwise, the system's connect timeout applies (about 2 minutes was seen).
+Outside a browser, on a channel the SDK creates, a host that does not answer a connection attempt fails with `Unavailable` after 15 s per attempt (3 attempts by default). On your own channel, the handler's `ConnectTimeout` applies if you set one; otherwise, the system's connect timeout applies (about 2 minutes was seen).
 
 ## Message size
 
@@ -411,9 +442,9 @@ using UtxorpcClient largerMessages = new(url,
 | Cancelling a stream threw `RpcException` (`Cancelled`) | `OperationCanceledException` on a channel the SDK creates; on your own channel set `ThrowOperationCanceledOnCancellation = true`. |
 | Header names were HTTP header names | Valid gRPC metadata keys only (letters, digits, `-`, `_`, `.`), else `ArgumentException`; upper case is lowered; `-bin` is rejected; in `UtxorpcClientOptions.Headers` names that differ only in case are one header; per-call headers are added beside the client's. |
 | A block or FollowTip event without a parsed form was dropped; a WatchTx transaction without one threw `InvalidOperationException` | It is delivered; check `ChainCase` before `.Cardano`. |
-| Depended on Utxorpc.Spec only | Also Grpc.Net.Client 2.85.0, Google.Protobuf 3.36.2 and Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions 11.0.0 (ASP.NET Core apps already have the health-check abstractions; the DI abstractions come with .NET 11). |
+| Depended on Utxorpc.Spec only | Also Grpc.Net.Client 2.85.0, Grpc.Net.Client.Web 2.85.0, Google.Protobuf 3.36.2 and Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions 11.0.0 (ASP.NET Core apps already have the health-check abstractions; the DI abstractions come with .NET 11). |
 | Targeted net10.0 | Targets **net11.0 only**. On .NET 10, stay on 1.8.0-alpha, or reference Utxorpc.Spec 0.19.2-alpha (it targets net10.0) and use its generated clients over your own `GrpcChannel`. |
-| A call failing with `Unavailable` failed at once; no keep-alive | Retried up to 3 attempts in all (the default policy excludes `SubmitTx` and server streams); a ping after 60 s without incoming data while a call is open; connect timeout 15 s. `MaxAttempts = 1` and `KeepAliveInterval = Timeout.InfiniteTimeSpan` restore the old behaviour. |
+| A call failing with `Unavailable` failed at once; no keep-alive | Retried up to 3 attempts in all (the default policy excludes `SubmitTx` and server streams); outside a browser, a ping after 60 s without incoming data while a call is open and a connect timeout of 15 s. `MaxAttempts = 1` and `KeepAliveInterval = Timeout.InfiniteTimeSpan` restore the old behaviour. |
 
 Callers on 1.7.0-alpha or older also meet the Spec 0.19 rename `Utxorpc.V1alpha` → `Utxorpc.V1Alpha`.
 
@@ -464,6 +495,9 @@ The `Grpc.Net.Client` event source exposes `total-calls`, `current-calls`, `call
 The SDK adds no telemetry dependency.
 
 ## Tests
+
+The build checks SDK API use against the browser (CA1416), not that making a client succeeds there at run time.
+No automated browser test runs; before a release, build and run the sample against a server and press Connect.
 
 ```bash
 dotnet test --filter "Category=Unit"

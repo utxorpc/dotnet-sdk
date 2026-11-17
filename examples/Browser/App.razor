@@ -1,0 +1,75 @@
+@using System.Diagnostics
+@using Microsoft.AspNetCore.Components.Web
+@using Utxorpc.Sdk
+@using Utxorpc.Sdk.V1Beta
+@using Utxorpc.V1Beta.Sync
+
+<h1>UTxO RPC in the browser</h1>
+<p>
+    <input @bind="url" size="40" aria-label="Server URL" />
+    <label><input type="checkbox" @bind="noCompression" /> No compression</label>
+    <button @onclick="ConnectAsync" disabled="@(stop is not null)">Connect</button>
+    <button @onclick="Stop" disabled="@(stop is null)">Stop</button>
+</p>
+<pre>@string.Join("\n", lines)</pre>
+
+@code {
+    private const int MaxLines = 100;
+    private readonly List<string> lines = [];
+    private string url = "http://localhost:50051";
+    private bool noCompression;
+    private CancellationTokenSource? stop;
+
+    private async Task ConnectAsync()
+    {
+        lines.Clear();
+        using CancellationTokenSource source = stop = new();
+        try
+        {
+            using UtxorpcClient client = new(new UtxorpcClientOptions
+            {
+                Url = url,
+                // A server whose CORS setup hides Grpc-Encoding from scripts cannot send a browser compressed answers.
+                ConfigureChannel = options => options.CompressionProviders = noCompression ? [] : null
+            });
+            ReadTipResponse tip = await client.V1Beta.Sync.ReadTipAsync(source.Token);
+            Show($"Tip: slot {tip.Tip.Slot}");
+            await foreach (FollowTipEvent e in client.V1Beta.Sync.FollowTipAsync(cancellationToken: source.Token))
+            {
+                Show(e switch
+                {
+                    BlockApplied a => $"Apply: {a.Block.NativeBytes.Length} bytes",
+                    BlockUndone u => $"Undo: {u.Block.NativeBytes.Length} bytes",
+                    Reset r => $"Reset: slot {r.Point.Slot}",
+                    null => throw new UnreachableException()
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Show("Stopped.");
+        }
+        catch (UtxorpcException e)
+        {
+            Show($"{e.Kind}: {e.Detail}");
+        }
+        catch (Exception e) when (e is ArgumentException or UriFormatException)
+        {
+            Show(e.Message);
+        }
+        finally
+        {
+            stop = null;
+        }
+    }
+
+    private void Stop() => stop?.Cancel();
+
+    private void Show(string line)
+    {
+        lines.Add(line);
+        // A page left connected would otherwise grow without end.
+        if (lines.Count > MaxLines) lines.RemoveAt(0);
+        StateHasChanged();
+    }
+}

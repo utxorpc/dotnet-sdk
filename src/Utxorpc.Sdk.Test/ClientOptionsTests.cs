@@ -771,6 +771,30 @@ public sealed class ClientAllocationTests(ITestOutputHelper output) : ClientTest
     {
         for (int i = 0; i < 3; i++) { GC.Collect(); GC.WaitForPendingFinalizers(); }
     }
+
+    // CORS must expose Grpc-Encoding for compressed browser answers; Dingo v0.94.1 compresses from 1 KiB but hides it.
+    // The README shows this hook for browsers; the SDK keeps the default compression.
+    /// <summary>Lets the channel hook disable the compression offered by default.</summary>
+    [Fact]
+    public async Task CompressionCanBeTurnedOffInTheHook()
+    {
+        using ReadTipHandler handler = new();
+        using UtxorpcClient defaults = new(new UtxorpcClientOptions
+        {
+            Url = server.Url,
+            ConfigureChannel = options => options.HttpHandler = handler
+        });
+        await defaults.V1Beta.Sync.ReadTipAsync(cancellation.Token);
+        Assert.Contains("gzip", handler.AcceptEncoding);
+        using UtxorpcClient uncompressed = new(new UtxorpcClientOptions
+        {
+            Url = server.Url,
+            ConfigureChannel = options => { options.HttpHandler = handler; options.CompressionProviders = []; }
+        });
+        await uncompressed.V1Beta.Sync.ReadTipAsync(cancellation.Token);
+        Assert.Equal("identity,", handler.AcceptEncoding);
+    }
+
     /// <summary>Checks that disabling retry leaves short and raw calls with the same allocation cost.</summary>
     [Fact]
     public async Task RetryOffShortMethodAllocatesLikeTheRawCall()
@@ -865,6 +889,7 @@ public sealed class ClientAllocationTests(ITestOutputHelper output) : ClientTest
     {
         private readonly byte[] responseBytes;
         public int Calls { get; private set; }
+        public string AcceptEncoding { get; private set; } = "";
 
         public ReadTipHandler()
         {
@@ -880,6 +905,7 @@ public sealed class ClientAllocationTests(ITestOutputHelper output) : ClientTest
             Assert.Equal(HttpVersion.Version20, request.Version);
             Assert.Equal(ReadTipPath, request.RequestUri!.AbsolutePath);
             Calls++;
+            AcceptEncoding = string.Join(",", request.Headers.GetValues("grpc-accept-encoding"));
             HttpResponseMessage response = new(HttpStatusCode.OK)
             {
                 Version = HttpVersion.Version20,

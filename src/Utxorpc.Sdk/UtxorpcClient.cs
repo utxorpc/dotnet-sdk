@@ -1,6 +1,7 @@
 using Grpc.Core;
 using Grpc.Net.Client;
 using Grpc.Net.Client.Configuration;
+using Grpc.Net.Client.Web;
 using Utxorpc.Sdk.Internal;
 
 namespace Utxorpc.Sdk;
@@ -17,6 +18,8 @@ namespace Utxorpc.Sdk;
 /// By default, an SDK-created connection with an open call is pinged after receiving nothing for
 /// KeepAliveInterval. Disposal closes only the channel and handler created here; transports
 /// supplied by ConfigureChannel remain the caller's.
+/// In a browser the channel uses gRPC-Web; keep-alive pings and the connect timeout
+/// do not apply.
 /// </remarks>
 public sealed class UtxorpcClient : IDisposable
 {
@@ -25,7 +28,7 @@ public sealed class UtxorpcClient : IDisposable
     private static readonly TimeSpan MaxTimeout = TimeSpan.FromMilliseconds(int.MaxValue);
     private static readonly UtxorpcClientOptions Defaults = new();
     private GrpcChannel? ownedChannel;
-    private SocketsHttpHandler? ownedHandler;
+    private HttpMessageHandler? ownedHandler;
 
     /// <summary>Creates and owns a channel configured with the given options.</summary>
     /// <param name="options">The client options, including the required URL.</param>
@@ -59,14 +62,16 @@ public sealed class UtxorpcClient : IDisposable
         Metadata metadata = CreateHeaders(headers);
         GrpcChannelOptions options = new() { ThrowOperationCanceledOnCancellation = true };
         if (maxAttempts > 1) options.ServiceConfig = CreateServiceConfig(maxAttempts);
-        ownedHandler = new SocketsHttpHandler
-        {
-            EnableMultipleHttp2Connections = true,
-            KeepAlivePingDelay = keepAliveInterval,
-            KeepAlivePingTimeout = TimeSpan.FromSeconds(30),
-            KeepAlivePingPolicy = HttpKeepAlivePingPolicy.WithActiveRequests,
-            ConnectTimeout = TimeSpan.FromSeconds(15)
-        };
+        ownedHandler = OperatingSystem.IsBrowser()
+            ? new GrpcWebHandler(GrpcWebMode.GrpcWeb, new HttpClientHandler())
+            : new SocketsHttpHandler
+            {
+                EnableMultipleHttp2Connections = true,
+                KeepAlivePingDelay = keepAliveInterval,
+                KeepAlivePingTimeout = TimeSpan.FromSeconds(30),
+                KeepAlivePingPolicy = HttpKeepAlivePingPolicy.WithActiveRequests,
+                ConnectTimeout = TimeSpan.FromSeconds(15)
+            };
         options.HttpHandler = ownedHandler;
         configureChannel?.Invoke(options);
         if (options.HttpClient is not null && ReferenceEquals(options.HttpHandler, ownedHandler)) options.HttpHandler = null;

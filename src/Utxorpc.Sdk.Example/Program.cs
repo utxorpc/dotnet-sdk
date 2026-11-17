@@ -107,6 +107,9 @@ static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient clie
     Beta.Query.ReadStateResponse state = await client.V1Beta.Query.ReadStateAsync(new Utxorpc.V1Beta.Cardano.StateQuery { }, cancellationToken: cancellationToken);
     Console.WriteLine(state.LedgerTip.Slot);
 
+    // Disable compression when a browser cannot read the server's Grpc-Encoding header.
+    UtxorpcClientOptions browserOptions = new() { Url = url, ConfigureChannel = o => o.CompressionProviders = [] };
+
     // Configure a client that creates its own channel.
     UtxorpcClientOptions options = new() { Url = url, MaxAttempts = 1, KeepAliveInterval = Timeout.InfiniteTimeSpan };
     if (apiKey is not null) options.Headers["dmtr-api-key"] = apiKey;

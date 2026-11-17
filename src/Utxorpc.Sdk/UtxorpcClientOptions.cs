@@ -25,7 +25,7 @@ public sealed class UtxorpcClientOptions
     /// <summary>Gets or sets the clock for waits between resume attempts; replace it in tests.</summary>
     public TimeProvider TimeProvider { get; set; } = TimeProvider.System;
 
-    /// <summary>Gets or sets the silence before an active connection is pinged; defaults to 60 seconds, or infinite to disable.</summary>
+    /// <summary>Gets or sets the silence before an active connection is pinged; defaults to 60 seconds, or infinite to disable; not used in a browser.</summary>
     public TimeSpan KeepAliveInterval { get; set; } = TimeSpan.FromSeconds(60);
 
     /// <summary>Gets or sets the time each unary call without its own deadline may take, retries included; defaults to infinite (no timeout). Server streams never get it.</summary>
