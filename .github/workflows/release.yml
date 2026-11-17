@@ -43,6 +43,8 @@ jobs:
       - run: dotnet restore
       # Live tests (Category=Live) need a server; CI runs the Unit category.
       - run: dotnet test --filter "Category=Unit"
+      # Creates a project from the worker template and builds it against the packed SDK.
+      - run: ./templates/test.sh
 
   publish:
     needs: test
@@ -58,23 +60,22 @@ jobs:
         with:
           global-json-file: global.json
       - name: Pack
-        run: >-
-          dotnet pack src/Utxorpc.Sdk/Utxorpc.Sdk.csproj
-          --configuration Release
-          --output ./nupkgs
-      # Issued keys live for one hour and are single-use, so this runs
-      # immediately before the push rather than at the top of the job.
+        run: |
+          dotnet pack src/Utxorpc.Sdk/Utxorpc.Sdk.csproj --configuration Release --output ./nupkgs
+          dotnet pack templates/Utxorpc.Templates.csproj --configuration Release --output ./nupkgs
+      # An issued key lives for one hour, so this runs immediately before the
+      # push rather than at the top of the job. One key pushes both packages.
       - name: NuGet login
         uses: NuGet/login@v1
         id: login
         with:
           user: ${{ vars.NUGET_USER }}
       - name: Publish to NuGet
-        run: >-
-          dotnet nuget push ./nupkgs/*.nupkg
-          --source https://api.nuget.org/v3/index.json
-          --api-key ${{ steps.login.outputs.NUGET_API_KEY }}
-          --skip-duplicate
+        # The templates go first: if nuget.org refuses the new package id, nothing is published.
+        # The pushes are not atomic: if the second fails after the first succeeds, re-run to complete the release.
+        run: |
+          dotnet nuget push ./nupkgs/Utxorpc.Templates.*.nupkg --source https://api.nuget.org/v3/index.json --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --skip-duplicate
+          dotnet nuget push ./nupkgs/Utxorpc.Sdk.*.nupkg --source https://api.nuget.org/v3/index.json --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --skip-duplicate
 
   # Publishing the package and announcing it are separate concerns: this job is
   # kept apart from `publish` so the credential-bearing job keeps `contents: read`.

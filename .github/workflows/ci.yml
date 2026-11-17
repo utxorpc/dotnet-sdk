@@ -14,6 +14,7 @@ jobs:
         with:
           global-json-file: global.json
       - run: dotnet restore
+      # The browser sample is outside the solution; build it separately with dotnet build examples/Browser.
       - run: dotnet build --no-restore -warnaserror
       - run: dotnet format --no-restore --verify-no-changes
 
@@ -28,3 +29,14 @@ jobs:
       - run: dotnet restore
       # Live tests (Category=Live) need a server; CI runs the Unit category.
       - run: dotnet test --filter "Category=Unit"
+
+  template:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      # Creates a project from the worker template and builds it against the packed SDK.
+      - run: ./templates/test.sh

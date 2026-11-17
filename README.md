@@ -28,65 +28,71 @@ Requires .NET 11: the package targets net11.0 only and depends on Utxorpc.Spec 0
 
 ## Quick start
 
-Connect with a header, read the tip on both versions, fetch a block, then follow the tip. `apiKey` is supplied by the caller, not written into source.
+Read the tip, fetch its block, then follow the chain from there. `url` and `apiKey` come from the environment and `ct` is a cancellation token; the whole program is `examples/Sync`.
 
 ```csharp
-using System.Diagnostics;
-using Google.Protobuf.WellKnownTypes;
-using Utxorpc.Sdk;
-using Utxorpc.Sdk.V1Beta;
-using Alpha = Utxorpc.V1Alpha;
-using Beta = Utxorpc.V1Beta;
-
-string url = args.Length > 0 ? args[0] : "http://localhost:50051";
-string? apiKey = args.Length > 1 ? args[1] : null;
-using CancellationTokenSource cancellation = new();
 Dictionary<string, string>? headers = apiKey is null ? null : new() { ["dmtr-api-key"] = apiKey };
 using UtxorpcClient u5c = new(url, headers);
-Beta.Sync.ReadTipResponse tip = await u5c.V1Beta.Sync.ReadTipAsync(cancellation.Token);
-Console.WriteLine($"v1beta: {tip.Tip.Slot} {Convert.ToHexString(tip.Tip.Hash.Span)}");
-Alpha.Sync.ReadTipResponse oldTip = await u5c.V1Alpha.Sync.ReadTipAsync(cancellation.Token);
-Console.WriteLine($"v1alpha: {oldTip.Tip.Slot} {Convert.ToHexString(oldTip.Tip.Hash.Span)}");
-Beta.Sync.FetchBlockResponse block = await u5c.V1Beta.Sync.FetchBlockAsync(
-    new BlockPoint(tip.Tip.Slot, tip.Tip.Hash.Memory), FieldMask.FromString("native_bytes"), cancellation.Token);
-Console.WriteLine($"Block bytes: {block.Block[0].NativeBytes.Length}");
-int events = 0;
-await foreach (FollowTipEvent e in
-    u5c.V1Beta.Sync.FollowTipAsync(new BlockPoint(tip.Tip.Slot, tip.Tip.Hash.Memory), cancellationToken: cancellation.Token))
+Beta.Sync.BlockRef tip = (await u5c.V1Beta.Sync.ReadTipAsync(ct)).Tip;
+Console.WriteLine($"Tip: slot {tip.Slot}, hash {Convert.ToHexString(tip.Hash.Span)}");
+BlockPoint point = new(tip.Slot, tip.Hash.Memory);
+Beta.Sync.FetchBlockResponse fetched = await u5c.V1Beta.Sync.FetchBlockAsync(point, FieldMask.FromFieldNumbers<AnyChainBlock>(AnyChainBlock.NativeBytesFieldNumber), ct);
+Console.WriteLine($"Block bytes: {fetched.Block[0].NativeBytes.Length}");
+await foreach (FollowTipEvent e in u5c.V1Beta.Sync.FollowTipAsync(point, cancellationToken: ct))
 {
     Console.WriteLine(e switch
     {
         BlockApplied a => $"Apply: {a.Block.NativeBytes.Length} bytes",
         BlockUndone u => $"Undo: {u.Block.NativeBytes.Length} bytes",
-        Reset r => $"Reset: {r.Point.Slot}",
+        Reset r => $"Reset: slot {r.Point.Slot}",
         null => throw new UnreachableException()
     });
-    if (++events == 3)
-    {
-        break;
-    }
 }
 ```
 
-The generated calls take the Spec's requests and are always there:
+The generated calls take the Spec's requests and are always there, using the same connected `u5c` and cancellation token `ct`:
 
 ```csharp
-tip = await u5c.V1Beta.Sync.ReadTipAsync(new(), cancellationToken: cancellation.Token);
-oldTip = await u5c.V1Alpha.Sync.ReadTipAsync(new(), cancellationToken: cancellation.Token);
-block = await u5c.V1Beta.Sync.FetchBlockAsync(
-    new() { Ref = { tip.Tip }, FieldMask = new() { Paths = { "native_bytes" } } },
-    cancellationToken: cancellation.Token);
-events = 0;
-await foreach (Beta.Sync.FollowTipResponse response in
-    u5c.V1Beta.Sync.FollowTip(new() { Intersect = { tip.Tip } }, cancellationToken: cancellation.Token).ReadAllAsync())
+Beta.Sync.ReadTipResponse response = await u5c.V1Beta.Sync.ReadTipAsync(new(), cancellationToken: ct);
+Alpha.Sync.ReadTipResponse oldTip = await u5c.V1Alpha.Sync.ReadTipAsync(new(), cancellationToken: ct);
+Beta.Sync.FetchBlockResponse block = await u5c.V1Beta.Sync.FetchBlockAsync(
+    new() { Ref = { response.Tip }, FieldMask = new() { Paths = { "native_bytes" } } },
+    cancellationToken: ct);
+int events = 0;
+await foreach (Beta.Sync.FollowTipResponse update in
+    u5c.V1Beta.Sync.FollowTip(new() { Intersect = { response.Tip } }, cancellationToken: ct).ReadAllAsync())
 {
-    Console.WriteLine(response.ActionCase);
+    Console.WriteLine(update.ActionCase);
     if (++events == 3)
     {
         break;
     }
 }
 ```
+
+## Examples
+
+Each folder under `examples/` is a program that runs against your server. Query, Submit and Sync read the server's URL from `UTXORPC_URL` (default `http://localhost:50051`); DependencyInjection and Worker read it from the `Utxorpc` section of their `appsettings.json`; Browser takes it in a box on its page. For a hosted server, set `DMTR_API_KEY` in the environment for Query, Submit, Sync, DependencyInjection and Worker; keep keys out of files. Browser is not part of the solution: `dotnet build examples/Browser` builds it by itself.
+
+| Example | Run | Shows |
+|---|---|---|
+| Query | `dotnet run --project examples/Query -- [address as hex] [policy id as hex]` | Protocol parameters with a field mask, outputs matching an address and optional policy, one output and its transaction |
+| Sync | `dotnet run --project examples/Sync` | The tip, a block, and the chain followed from there |
+| Submit | `dotnet run --project examples/Submit -- [signed transaction as hex] [--submit]` | Evaluating a transaction; with `--submit`, submitting it and waiting for confirmation |
+| DependencyInjection | `dotnet run --project examples/DependencyInjection` | A web API over one shared client from configuration, with `/health` |
+| Worker | `dotnet run --project examples/Worker` | A background service that follows the chain; resume is on (turn it off with `--Utxorpc:ResumeOnFailure=false`) |
+| Browser | `dotnet run --project examples/Browser` | The tip and incoming blocks in Blazor WebAssembly, with a "No compression" tick box |
+
+The Submit example spends nothing unless you pass a transaction you signed yourself together with `--submit`.
+
+### Worker template
+
+```bash
+dotnet new install Utxorpc.Templates::2.0.0-alpha
+dotnet new utxorpc-worker --name MyIndexer --url http://localhost:50051
+```
+
+This creates the Worker example as your own project, referencing this package.
 
 ## Short methods
 
@@ -233,15 +239,27 @@ Outside a browser, when a connection with an open call receives nothing for `Kee
 
 ### Dependency injection
 
+In a web app, bind the server settings as in `examples/DependencyInjection`:
+
+```csharp
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+builder.Services.AddUtxorpcClient(o =>
+{
+    builder.Configuration.GetSection("Utxorpc").Bind(o);
+    // Set DMTR_API_KEY in the environment for a hosted server; keep keys out of files.
+    if (builder.Configuration["DMTR_API_KEY"] is { } apiKey) o.Headers["dmtr-api-key"] = apiKey;
+});
+```
+
+For named clients or settings from another service:
+
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
 ServiceCollection services = new();
-services.AddUtxorpcClient(o => o.Url = url);
 services.AddUtxorpcClient("preprod", o => o.Url = url);
 services.AddSingleton(new Uri(url));
 services.AddUtxorpcClient("fromServices", (provider, o) => o.Url = provider.GetRequiredService<Uri>().ToString());
 using ServiceProvider provider = services.BuildServiceProvider();
-UtxorpcClient shared = provider.GetRequiredService<UtxorpcClient>();
 UtxorpcClient preprod = provider.GetRequiredKeyedService<UtxorpcClient>("preprod");
 ```
 
@@ -255,7 +273,7 @@ A registration with a missing or invalid `Url`, or out-of-range retry, keep-aliv
 
 In an ASP.NET Core app, register the check beside the shared client:
 
-```text
+```csharp
 builder.Services.AddHealthChecks().AddCheck<UtxorpcHealthCheck>("utxorpc", timeout: TimeSpan.FromSeconds(5));
 ```
 
@@ -520,3 +538,5 @@ Contributions are welcome! Please fork the repository and submit a pull request.
 If you want to discuss UTxO RPC or get involved in the community, join the **TxPipe Discord**! There's a dedicated channel for UTxO RPC where you can connect with other developers, share ideas, and get support.
 
 👉 [Join the TxPipe Discord here!](https://discord.gg/nbkJdPnKHm) 💬
+
+Icon: adapted from the UTxO RPC logo, [utxorpc/docs](https://github.com/utxorpc/docs) `public/logo-dark.svg`, Apache-2.0.

@@ -4,6 +4,9 @@
 
 ### Added
 
+- Example programs under `examples/`: query, sync, submit, dependency injection and a worker service.
+- `dotnet new utxorpc-worker`, from the Utxorpc.Templates package.
+- A package icon.
 - Blazor WebAssembly support through gRPC-Web, using the new Grpc.Net.Client.Web 2.85.0 dependency.
 - A browser sample in `examples/Browser`.
 - Start-up validation of the URL and retry, keep-alive and timeout settings for every `AddUtxorpcClient` registration, naming the client and invalid option.

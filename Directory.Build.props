@@ -1,0 +1,18 @@
+<Project>
+
+  <!-- Package metadata shared by Utxorpc.Sdk and Utxorpc.Templates. -->
+  <PropertyGroup>
+    <Company>TxPipe LLC</Company>
+    <RepositoryUrl>https://github.com/utxorpc/dotnet-sdk</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://utxorpc.org</PackageProjectUrl>
+    <PackageIcon>icon.png</PackageIcon>
+  </PropertyGroup>
+
+  <!-- icon.png: the symbol of the UTxO RPC logo (utxorpc/docs, public/logo-dark.svg, Apache-2.0) on a black square. -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="." />
+  </ItemGroup>
+
+</Project>

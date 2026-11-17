@@ -276,10 +276,15 @@ public sealed class ClientOptionsTests(ITestOutputHelper output) : ClientTestBas
     public void NullRequestThrowsOnTheCallersSide()
     {
         using UtxorpcClient client = new(server.Url);
-        Assert.Equal("request", Assert.Throws<ArgumentNullException>(() => client.V1Beta.Sync.ReadTipAsync(default)).ParamName);
-        Assert.Throws<ArgumentNullException>(() => client.V1Beta.Query.ReadParamsAsync(null));
-        Assert.Throws<ArgumentNullException>(() => client.V1Alpha.Sync.ReadTip(null));
-        Assert.Throws<ArgumentNullException>(() => client.V1Beta.Sync.FollowTip(null));
+        // UTXORPC001 rejects literal null at compile time; this covers nulls reaching the call at run time.
+        Beta.Sync.ReadTipRequest tipRequest = null!;
+        Beta.Query.ReadParamsRequest paramsRequest = null!;
+        Alpha.Sync.ReadTipRequest oldTipRequest = null!;
+        Beta.Sync.FollowTipRequest followRequest = null!;
+        Assert.Equal("request", Assert.Throws<ArgumentNullException>(() => client.V1Beta.Sync.ReadTipAsync(tipRequest)).ParamName);
+        Assert.Throws<ArgumentNullException>(() => client.V1Beta.Query.ReadParamsAsync(paramsRequest));
+        Assert.Throws<ArgumentNullException>(() => client.V1Alpha.Sync.ReadTip(oldTipRequest));
+        Assert.Throws<ArgumentNullException>(() => client.V1Beta.Sync.FollowTip(followRequest));
         Assert.Empty(server.State.Calls);
     }
 

@@ -27,7 +27,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Utxorpc.Sdk\Utxorpc.Sdk.csproj" />
-    <ProjectReference Include="../Utxorpc.Sdk.Analyzers/Utxorpc.Sdk.Analyzers.csproj" />
+    <ProjectReference Include="../Utxorpc.Sdk.Analyzers/Utxorpc.Sdk.Analyzers.csproj" OutputItemType="Analyzer" />
     <ProjectReference Include="../Utxorpc.Sdk.CodeFixes/Utxorpc.Sdk.CodeFixes.csproj" />
   </ItemGroup>
 
@@ -39,7 +39,8 @@
   <ItemGroup>
     <None Include="vectors/**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\README.md" Link="docs\README.md" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\Utxorpc.Sdk.Example\Program.cs" Link="docs\Program.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="ReadmeSamples.cs" Link="docs\samples\ReadmeSamples.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\examples\**\*.cs" Exclude="..\..\examples\**\bin\**;..\..\examples\**\obj\**;..\..\examples\Browser\**" Link="docs\samples\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "UTxO RPC",
+  "classifications": [ "Worker", "UTxO RPC", "Cardano" ],
+  "identity": "Utxorpc.Templates.Worker",
+  "name": "UTxO RPC Worker Service",
+  "description": "A worker service that follows the chain tip through Utxorpc.Sdk.",
+  "shortName": "utxorpc-worker",
+  "sourceName": "UtxorpcWorker",
+  "preferNameDirectory": true,
+  "tags": { "language": "C#", "type": "project" },
+  "symbols": {
+    "url": {
+      "type": "parameter",
+      "datatype": "string",
+      "defaultValue": "http://localhost:50051",
+      "replaces": "http://localhost:50051",
+      "description": "The UTxO RPC server URL written to appsettings.json."
+    }
+  }
+}
