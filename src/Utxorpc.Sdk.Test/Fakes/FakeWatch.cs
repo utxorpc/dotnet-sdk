@@ -14,6 +14,11 @@ internal sealed class FakeWatchV1Alpha(FakeState state) : Alpha.WatchService.Wat
         state.Requests.Enqueue(request);
         try
         {
+            if (state.StreamScripts.Count > 0)
+            {
+                await state.PlayAsync(responseStream, context);
+                return;
+            }
             for (int i = 1; i <= (state.MixedActions ? 4 : 2); i++)
             {
                 await responseStream.WriteAsync(state.MixedActions ? i switch
@@ -43,6 +48,11 @@ internal sealed class FakeWatchV1Beta(FakeState state) : Beta.WatchService.Watch
         state.Requests.Enqueue(request);
         try
         {
+            if (state.StreamScripts.Count > 0)
+            {
+                await state.PlayAsync(responseStream, context);
+                return;
+            }
             for (int i = 1; i <= (state.MixedActions ? 4 : 2); i++)
             {
                 await responseStream.WriteAsync(state.MixedActions ? i switch

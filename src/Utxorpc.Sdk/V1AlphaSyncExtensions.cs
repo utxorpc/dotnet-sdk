@@ -50,7 +50,9 @@ public static class V1AlphaSyncExtensions
     {
         FollowTipRequest request = new() { FieldMask = fieldMask };
         AddPoints(request.Intersect, intersect);
-        return ServerStream.ReadAllAsync<FollowTipCall, FollowTipResponse, FollowTipEvent, FollowTipEvent>((client, request), cancellationToken);
+        return StreamResume.For(client) is ResumeSettings resume
+            ? ServerStream.ReadAllResumingAsync<FollowTipCall, FollowTipResponse, FollowTipEvent, FollowTipEvent>((client, request), resume, cancellationToken)
+            : ServerStream.ReadAllAsync<FollowTipCall, FollowTipResponse, FollowTipEvent, FollowTipEvent>((client, request), cancellationToken);
     }
 
     /// <include file="Docs.xml" path="docs/member[@name='DumpAllHistoryAsync']/*[not(self::remarks)]"/>

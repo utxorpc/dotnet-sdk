@@ -19,6 +19,30 @@ internal sealed record FakeCall(string Method, IReadOnlyList<KeyValuePair<string
 internal sealed class FakeState
 {
     private int callCount;
+    private int streamScript;
+    /// <summary>Marks a scripted connection abort.</summary>
+    public static readonly object Abort = new();
+    /// <summary>Gets the scripts played by successive stream calls; the final script repeats.</summary>
+    public List<object[]> StreamScripts { get; } = [];
+
+    /// <summary>Plays one script for either version of either resumable stream.</summary>
+    public async Task PlayAsync<T>(IServerStreamWriter<T> writer, ServerCallContext context)
+    {
+        object[] script = StreamScripts[Math.Min(Interlocked.Increment(ref streamScript) - 1, StreamScripts.Count - 1)];
+        foreach (object step in script)
+        {
+            if (step is StatusCode code) throw new RpcException(new Status(code, FailDetail));
+            if (ReferenceEquals(step, Abort))
+            {
+                await Task.Delay(50, context.CancellationToken);
+                context.GetHttpContext().Abort();
+                return;
+            }
+            await writer.WriteAsync((T)step);
+        }
+        await Task.Delay(Timeout.Infinite, context.CancellationToken);
+    }
+
     /// <summary>Gets the calls received by either version.</summary>
     public ConcurrentQueue<FakeCall> Calls { get; } = new();
     /// <summary>Gets requests received by the fake services.</summary>

@@ -32,6 +32,11 @@ internal sealed class FakeSyncV1Alpha(FakeState state) : Alpha.Sync.SyncService.
         state.Requests.Enqueue(request);
         try
         {
+            if (state.StreamScripts.Count > 0)
+            {
+                await state.PlayAsync(responseStream, context);
+                return;
+            }
             for (int i = 1; i <= (state.MixedActions ? 4 : state.StreamMessages); i++)
             {
                 await responseStream.WriteAsync(state.MixedActions ? i switch
@@ -101,6 +106,11 @@ internal sealed class FakeSyncV1Beta(FakeState state) : Beta.Sync.SyncService.Sy
         state.Requests.Enqueue(request);
         try
         {
+            if (state.StreamScripts.Count > 0)
+            {
+                await state.PlayAsync(responseStream, context);
+                return;
+            }
             for (int i = 1; i <= (state.MixedActions ? 4 : state.StreamMessages); i++)
             {
                 await responseStream.WriteAsync(state.MixedActions ? i switch

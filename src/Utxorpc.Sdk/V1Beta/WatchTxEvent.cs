@@ -9,7 +9,7 @@ namespace Utxorpc.Sdk.V1Beta;
 /// <summary>One message of the v1beta WatchTx stream: a transaction to apply, a transaction to undo, or a block without a match.</summary>
 /// <remarks>Read it with a switch expression over <see cref="TxApplied"/>, <see cref="TxUndone"/> and <see cref="Idle"/>: a missing case is compiler warning CS8509 (a switch statement is not checked), and reading the cases allocates nothing. <see cref="Value"/> boxes. End the switch with <c>null =&gt; throw new UnreachableException()</c>: a default event holds no case.</remarks>
 [Union]
-public readonly struct WatchTxEvent : IUnion, IServerStream<WatchTxCall, WatchTxResponse, WatchTxEvent>
+public readonly struct WatchTxEvent : IUnion, IServerStream<WatchTxCall, WatchTxResponse, WatchTxEvent>, IResumableStream<WatchTxCall, WatchTxResponse>
 {
     private readonly WatchTxResponse? response;
 
@@ -68,6 +68,46 @@ public readonly struct WatchTxEvent : IUnion, IServerStream<WatchTxCall, WatchTx
 
     static WatchTxEvent IServerStream<WatchTxCall, WatchTxResponse, WatchTxEvent>.Map(WatchTxResponse message) =>
         message.ActionCase is WatchTxResponse.ActionOneofCase.None ? throw StreamErrors.UnknownAction("WatchTx") : new(message);
+
+    static bool IResumableStream<WatchTxCall, WatchTxResponse>.Read(WatchTxResponse message, out StreamAction action, out ChainBlock block)
+    {
+        action = message.ActionCase switch
+        {
+            WatchTxResponse.ActionOneofCase.Apply => StreamAction.Apply,
+            WatchTxResponse.ActionOneofCase.Undo => StreamAction.Undo,
+            _ => StreamAction.Idle
+        };
+        Utxorpc.V1Beta.Cardano.BlockHeader? header = message.ActionCase switch
+        {
+            WatchTxResponse.ActionOneofCase.Apply => message.Apply.Block?.Cardano?.Header,
+            WatchTxResponse.ActionOneofCase.Undo => message.Undo.Block?.Cardano?.Header,
+            _ => null
+        };
+        if (action is StreamAction.Apply or StreamAction.Undo)
+        {
+            block = header is null ? default : new(header.Slot, header.Hash, header.Height);
+            return header is not null && !header.Hash.IsEmpty;
+        }
+        block = message.Idle is { } point ? new(point.Slot, point.Hash, point.Height) : default;
+        return message.Idle is not null;
+    }
+
+    static WatchTxCall IResumableStream<WatchTxCall, WatchTxResponse>.From(WatchTxCall state, ReadOnlySpan<ChainBlock> intersect)
+    {
+        WatchTxRequest request = state.Request.Clone();
+        request.Intersect.Clear();
+        foreach (ChainBlock point in intersect) request.Intersect.Add(new BlockRef { Slot = point.Slot, Hash = point.Hash, Height = point.Height });
+        return (state.Client, request);
+    }
+
+    static WatchTxResponse IResumableStream<WatchTxCall, WatchTxResponse>.Rollback(WatchTxResponse? applied, ChainBlock to) =>
+        new() { Undo = applied!.Apply };
+
+    static bool IResumableStream<WatchTxCall, WatchTxResponse>.PerTransaction => true;
+
+    static bool IResumableStream<WatchTxCall, WatchTxResponse>.SameTransaction(WatchTxResponse applied, WatchTxResponse undo) =>
+        applied.Apply.Cardano is { Hash.IsEmpty: false } a && undo.Undo.Cardano is { Hash.IsEmpty: false } b
+            ? a.Hash.Equals(b.Hash) : applied.Apply.Equals(undo.Undo);
 }
 
 /// <summary>A transaction to apply.</summary>

@@ -143,14 +143,15 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
         using CancellationTokenSource timeout = Timeout();
         Beta.Sync.BlockRef tip = (await Client.V1Beta.Sync.ReadTipAsync(timeout.Token)).Tip;
         BlockPoint point = new(tip.Slot, tip.Hash.Memory);
+        BlockPoint[] points = [new(tip.Slot, new byte[32]), point];
         if (version == "v1alpha")
         {
-            Alpha.Sync.FollowTipResponse first = Assert.Single(await TakeAsync(Client.V1Alpha.Sync.FollowTipAsync(point, cancellationToken: timeout.Token), 1)).Response;
+            Alpha.Sync.FollowTipResponse first = Assert.Single(await TakeAsync(Client.V1Alpha.Sync.FollowTipAsync(points.AsSpan(), cancellationToken: timeout.Token), 1)).Response;
             await CheckAsync(first.Reset?.Slot, first.Reset?.Hash, first.Apply?.Cardano?.Header?.Slot, first.Apply?.Cardano?.Header?.Height);
         }
         else
         {
-            Beta.Sync.FollowTipResponse first = Assert.Single(await TakeAsync(Client.V1Beta.Sync.FollowTipAsync(point, cancellationToken: timeout.Token), 1)).Response;
+            Beta.Sync.FollowTipResponse first = Assert.Single(await TakeAsync(Client.V1Beta.Sync.FollowTipAsync(points.AsSpan(), cancellationToken: timeout.Token), 1)).Response;
             await CheckAsync(first.Reset?.Slot, first.Reset?.Hash, first.Apply?.Cardano?.Header?.Slot, first.Apply?.Cardano?.Header?.Height);
         }
         async Task CheckAsync(ulong? resetSlot, ByteString? resetHash, ulong? applySlot, ulong? applyHeight)
@@ -159,11 +160,13 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
             {
                 Assert.Equal(tip.Slot, resetSlot);
                 Assert.Equal(tip.Hash, resetHash);
+                output.WriteLine($"{version}: unknown point skipped; Reset at slot {resetSlot}.");
                 return;
             }
             Assert.True(applySlot > tip.Slot, "The first event must reset at the intersection or apply its next block.");
             Beta.Cardano.BlockHeader previous = Assert.Single((await Client.V1Beta.Sync.FetchBlockAsync(point, cancellationToken: timeout.Token)).Block).Cardano.Header;
             Assert.Equal(previous.Height + 1, applyHeight);
+            output.WriteLine($"{version}: unknown point skipped; Apply at height {applyHeight}, after {previous.Height}.");
         }
     }
 
@@ -205,6 +208,19 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
         {
             if (item is not V1Alpha.TxApplied applied) continue;
             Assert.Equal(32, applied.Tx.Cardano.Hash.Length);
+            if (server.IsDingo)
+            {
+                // Without WatchTx blocks this stream cannot resume.
+                Assert.Null(applied.Tx.Block);
+                output.WriteLine("alpha: WatchTx has no block; resuming is unavailable.");
+            }
+            else
+            {
+                Alpha.Cardano.BlockHeader header = Assert.IsType<Alpha.Cardano.BlockHeader>(applied.Tx.Block?.Cardano?.Header);
+                Assert.True(header.Slot > 0 && header.Height > 0);
+                Assert.Equal(32, header.Hash.Length);
+                output.WriteLine($"alpha: WatchTx block slot {header.Slot}, height {header.Height}, 32-byte hash.");
+            }
             alphaFound = true;
             break;
         }
@@ -212,6 +228,19 @@ public sealed class LiveTests(LiveServer server, ITestOutputHelper output) : ICl
         {
             if (item is not V1Beta.TxApplied applied) continue;
             Assert.Equal(32, applied.Tx.Cardano.Hash.Length);
+            if (server.IsDingo)
+            {
+                // Without WatchTx blocks this stream cannot resume.
+                Assert.Null(applied.Tx.Block);
+                output.WriteLine("beta: WatchTx has no block; resuming is unavailable.");
+            }
+            else
+            {
+                Beta.Cardano.BlockHeader header = Assert.IsType<Beta.Cardano.BlockHeader>(applied.Tx.Block?.Cardano?.Header);
+                Assert.True(header.Slot > 0 && header.Height > 0);
+                Assert.Equal(32, header.Hash.Length);
+                output.WriteLine($"beta: WatchTx block slot {header.Slot}, height {header.Height}, 32-byte hash.");
+            }
             betaFound = true;
             break;
         }

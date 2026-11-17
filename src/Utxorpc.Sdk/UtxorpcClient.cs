@@ -9,8 +9,8 @@ namespace Utxorpc.Sdk;
 /// <remarks>
 /// For SDK-created channels, the default policy may retry unary calls that fail with Unavailable,
 /// even if the server already ran them. It never retries SubmitTx or a server stream.
-/// Stream failures are reported to the caller, who handles reconnecting and, where supported,
-/// resuming from a saved point. FollowTip and WatchTx support intersection points.
+/// Stream failures are reported to the caller unless ResumeOnFailure is enabled for FollowTip
+/// and WatchTx; these streams then reconnect from the blocks they have seen.
 /// Check with WaitForTxAsync or ReadTxAsync before resubmitting a transaction.
 /// A caller-supplied channel or a configuration hook that replaces ServiceConfig uses the caller's
 /// retry behavior; the caller is then responsible for SubmitTx retries.
@@ -34,7 +34,8 @@ public sealed class UtxorpcClient : IDisposable
     /// <exception cref="ArgumentOutOfRangeException">A retry, keep-alive or timeout option is out of range.</exception>
     /// <exception cref="UriFormatException">The URL is not a valid URI.</exception>
     public UtxorpcClient(UtxorpcClientOptions options)
-        : this(ValidateOptions(options), options.Headers, options.MaxAttempts, options.KeepAliveInterval, options.DefaultTimeout, options.ConfigureChannel)
+        : this(ValidateOptions(options), options.Headers, options.MaxAttempts, options.KeepAliveInterval, options.DefaultTimeout, options.ConfigureChannel,
+            options.ResumeOnFailure ? new ResumeSettings(options.TimeProvider, options.ResumeAttempts) : null)
     {
     }
 
@@ -47,12 +48,12 @@ public sealed class UtxorpcClient : IDisposable
     /// <exception cref="ArgumentOutOfRangeException">A channel option is out of range.</exception>
     /// <exception cref="UriFormatException">The URL is not a valid URI.</exception>
     public UtxorpcClient(string url, IEnumerable<KeyValuePair<string, string>>? headers = null, Action<GrpcChannelOptions>? configureChannel = null)
-        : this(url, headers, Defaults.MaxAttempts, Defaults.KeepAliveInterval, Defaults.DefaultTimeout, configureChannel)
+        : this(url, headers, Defaults.MaxAttempts, Defaults.KeepAliveInterval, Defaults.DefaultTimeout, configureChannel, null)
     {
     }
 
     private UtxorpcClient(string url, IEnumerable<KeyValuePair<string, string>>? headers, int maxAttempts,
-        TimeSpan keepAliveInterval, TimeSpan defaultTimeout, Action<GrpcChannelOptions>? configureChannel)
+        TimeSpan keepAliveInterval, TimeSpan defaultTimeout, Action<GrpcChannelOptions>? configureChannel, ResumeSettings? resume)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
         Metadata metadata = CreateHeaders(headers);
@@ -77,7 +78,7 @@ public sealed class UtxorpcClient : IDisposable
         {
             throw new UriFormatException(UrlInvalid, exception);
         }
-        (V1Alpha, V1Beta) = CreateClients(ownedChannel, metadata, defaultTimeout);
+        (V1Alpha, V1Beta) = CreateClients(ownedChannel, metadata, defaultTimeout, resume);
     }
 
     /// <summary>Uses a caller-owned channel without changing its settings or lifetime.</summary>
@@ -88,7 +89,7 @@ public sealed class UtxorpcClient : IDisposable
     public UtxorpcClient(ChannelBase channel, IEnumerable<KeyValuePair<string, string>>? headers = null)
     {
         ArgumentNullException.ThrowIfNull(channel);
-        (V1Alpha, V1Beta) = CreateClients(channel, CreateHeaders(headers), Defaults.DefaultTimeout);
+        (V1Alpha, V1Beta) = CreateClients(channel, CreateHeaders(headers), Defaults.DefaultTimeout, null);
     }
 
     /// <summary>Gets the v1alpha generated service clients.</summary>
@@ -109,6 +110,10 @@ public sealed class UtxorpcClient : IDisposable
         ArgumentNullException.ThrowIfNull(options);
         if (options.MaxAttempts is < 1 or > 5)
             throw new ArgumentOutOfRangeException(nameof(options), options.MaxAttempts, "MaxAttempts must be from 1 to 5.");
+        if (options.ResumeAttempts < 1)
+            throw new ArgumentOutOfRangeException(nameof(options), options.ResumeAttempts, "ResumeAttempts must be at least 1, or null to keep trying until cancelled.");
+        if (options.TimeProvider is null)
+            throw new ArgumentNullException(nameof(options), "UtxorpcClientOptions.TimeProvider is required.");
         if (options.KeepAliveInterval != Timeout.InfiniteTimeSpan && options.KeepAliveInterval < TimeSpan.FromSeconds(1))
             throw new ArgumentOutOfRangeException(nameof(options), options.KeepAliveInterval, "KeepAliveInterval must be at least 1 second, or infinite.");
         if (options.DefaultTimeout != Timeout.InfiniteTimeSpan && (options.DefaultTimeout <= TimeSpan.Zero || options.DefaultTimeout > MaxTimeout))
@@ -168,9 +173,9 @@ public sealed class UtxorpcClient : IDisposable
         return metadata;
     }
 
-    private static (V1AlphaClients, V1BetaClients) CreateClients(ChannelBase channel, Metadata headers, TimeSpan defaultTimeout)
+    private static (V1AlphaClients, V1BetaClients) CreateClients(ChannelBase channel, Metadata headers, TimeSpan defaultTimeout, ResumeSettings? resume)
     {
         CallInvoker invoker = new ClientCallInvoker(channel.CreateCallInvoker(), headers, defaultTimeout);
-        return (new V1AlphaClients(invoker), new V1BetaClients(invoker));
+        return (new V1AlphaClients(invoker, resume), new V1BetaClients(invoker, resume));
     }
 }

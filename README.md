@@ -221,7 +221,7 @@ using UtxorpcClient configured = new(options);
 
 Construction headers go on every call. In `UtxorpcClientOptions.Headers`, names differing only in case are one header (the last value set wins). Names must be valid gRPC metadata keys. Per-call `Metadata` is added beside the client's headers, not in place of them. An `https://` URL uses TLS.
 
-Unary calls failing with `Unavailable` are tried up to `MaxAttempts` (default 3) times in all. This usually means a lost connection or restarting server, but the server may still have run the call. `SubmitTx` is never retried by the SDK's default policy: check with `WaitForTxAsync` or `ReadTxAsync` before sending it again. Server streams are never retried by that policy: a failure or cancellation is reported at once; resume from the last item yourself. Retry behaviour on a caller-owned channel, or after `ConfigureChannel` changes the policy, is your responsibility.
+Unary calls failing with `Unavailable` are tried up to `MaxAttempts` (default 3) times in all. This usually means a lost connection or restarting server, but the server may still have run the call. `SubmitTx` is never retried by the SDK's default policy: check with `WaitForTxAsync` or `ReadTxAsync` before sending it again. Server streams are never retried by that policy. FollowTip and WatchTx can reconnect separately when `ResumeOnFailure` is enabled (see Resuming a broken stream). Retry behaviour on a caller-owned channel, or after `ConfigureChannel` changes the policy, is your responsibility.
 
 Default retry costs about 1.2 KB more per unary call (1,139–1,227 bytes measured), nothing per stream message. Turn it off in hot loops such as fetching block after block.
 
@@ -271,6 +271,31 @@ The check reads the v1beta tip, falling back to v1alpha when v1beta is unsupport
 
 Every call takes a `CancellationToken`. `ReadAllAsync()` reads a raw server stream and ends the call when the loop ends or is left. The short stream methods send nothing until the loop starts, and each loop opens its own call: looping the same sequence again starts a new stream.
 
+### Resuming a broken stream
+
+Resuming is off by default. Enable it for FollowTip and WatchTx on a client the SDK connects:
+
+```csharp
+UtxorpcClientOptions resuming = new()
+{
+    Url = url,
+    ResumeOnFailure = true,
+    ResumeAttempts = 10,
+    TimeProvider = TimeProvider.System
+};
+using UtxorpcClient resumable = new(resuming);
+```
+
+A reconnect does not yield an event a second time; a server's own repeats still pass through. Dolos can itself repeat the tip block, so WatchTx can yield its matching transactions twice; a payment watcher should de-duplicate by transaction hash. If the chain rolled back while disconnected, FollowTip yields one `Reset` to the chosen point; WatchTx yields `Undo` events for transactions removed, newest first, before the new events.
+
+Only transient failures resume (see `UtxorpcException.IsTransient`). `ResumeAttempts` counts reconnect attempts in a row: 10 by default, starting again only when a new event arrives, not on a skipped replay. Waits start at 1 second, grow by 1.6 to 120 seconds, and each varies by ±20%, so no wait exceeds 144 seconds. Ten attempts mean about 3 minutes of waiting.
+
+With `ResumeAttempts = null` (also `"ResumeAttempts": null` in configuration), a dead, mistyped or refusing server is retried silently for ever, so cancel the stream or watch the [health check](#health-check).
+
+Resuming needs block headers: a FollowTip field mask must keep `cardano.header`, and the server must send blocks with WatchTx transactions. WatchTx cannot resume inside the first block it yielded from. It keeps the last 10 blocks' yielded events alive to undo them if necessary.
+
+This works only for clients the SDK connects (the options constructor and dependency injection), not `UtxorpcClient(ChannelBase)`. Raw calls, `WaitForTxAsync` and `WatchMempoolAsync` do not resume. `TimeProvider` controls only the resume waits; replace it in tests.
+
 ### Stream events
 
 `FollowTipAsync` yields `FollowTipEvent`; `WatchTxAsync` yields `WatchTxEvent`, in `Utxorpc.Sdk.V1Alpha` or `Utxorpc.Sdk.V1Beta`. Read each with a **switch expression** over its three cases. A missing case is compiler warning CS8509; a switch statement is not checked. End the switch with `null => throw new UnreachableException()`: reading a case with `?.` inside an arm otherwise draws CS8655 ("the pattern 'null' is not covered"), and silencing that with `_ =>` would turn the CS8509 check off. Reading the cases allocates nothing.
@@ -313,7 +338,7 @@ catch (UtxorpcException e) when (e.Kind == UtxorpcErrorKind.InvalidTx)
 | `InvalidRequest` | The server rejected the request's content. | Fix the request. |
 | `NotFound` | The requested item is not known. | Check the transaction, block or output reference. |
 | `Unsupported` | The server does not offer the call. | Use a server that does. |
-| `Unavailable` | The server could not be reached or the connection broke. | Try again (SubmitTx: check first, see Retry); `IsTransient` identifies temporary failures. |
+| `Unavailable` | The server could not be reached or the connection broke. | Try again (SubmitTx: check first, see Connecting); `IsTransient` identifies temporary failures. |
 | `Timeout` | The deadline or `DefaultTimeout` passed. | Check the server and choose a suitable deadline. |
 | `Other` | Another failure. | Read `StatusCode` and `Detail`. |
 

@@ -31,7 +31,9 @@ public static class V1AlphaWatchExtensions
         {
             request.Intersect.Add(new BlockRef { Slot = intersect[i].Slot, Hash = UnsafeByteOperations.UnsafeWrap(intersect[i].Hash) });
         }
-        return ServerStream.ReadAllAsync<WatchTxCall, WatchTxResponse, WatchTxEvent, WatchTxEvent>((client, request), cancellationToken);
+        return StreamResume.For(client) is ResumeSettings resume
+            ? ServerStream.ReadAllResumingAsync<WatchTxCall, WatchTxResponse, WatchTxEvent, WatchTxEvent>((client, request), resume, cancellationToken)
+            : ServerStream.ReadAllAsync<WatchTxCall, WatchTxResponse, WatchTxEvent, WatchTxEvent>((client, request), cancellationToken);
     }
 
     extension(TxPredicate)

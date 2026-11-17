@@ -1,4 +1,5 @@
 using Grpc.Core;
+using Utxorpc.Sdk.Internal;
 using Spec = Utxorpc.V1Beta;
 
 namespace Utxorpc.Sdk;
@@ -6,12 +7,17 @@ namespace Utxorpc.Sdk;
 /// <summary>Groups the v1beta generated service clients.</summary>
 public sealed class V1BetaClients
 {
-    internal V1BetaClients(CallInvoker invoker)
+    internal V1BetaClients(CallInvoker invoker, ResumeSettings? resume)
     {
         Query = new(invoker);
         Submit = new(invoker);
         Sync = new(invoker);
         Watch = new(invoker);
+        if (resume is not null)
+        {
+            StreamResume.Enable(Sync, resume);
+            StreamResume.Enable(Watch, resume);
+        }
     }
 
     /// <summary>Gets the generated query client.</summary>

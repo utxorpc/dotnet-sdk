@@ -472,6 +472,40 @@ public sealed class ClientOptionsTests(ITestOutputHelper output) : ClientTestBas
         Assert.Equal(42UL, (await resolver.V1Beta.Sync.ReadTipAsync(cancellation.Token)).Tip.Slot);
     }
 
+    /// <summary>Rejects invalid resume settings even when resuming is disabled.</summary>
+    [Fact]
+    public async Task ResumeOptionsAreValidated()
+    {
+        foreach (int attempts in new[] { 0, -1 })
+        {
+            ArgumentOutOfRangeException error = Assert.Throws<ArgumentOutOfRangeException>(() => new UtxorpcClient(new UtxorpcClientOptions { Url = server.Url, ResumeAttempts = attempts }));
+            Assert.Equal("options", error.ParamName);
+            Assert.Equal(attempts, error.ActualValue);
+            Assert.Contains("ResumeAttempts must be at least 1, or null to keep trying until cancelled.", error.Message, StringComparison.Ordinal);
+        }
+        ArgumentNullException missing = Assert.Throws<ArgumentNullException>(() => new UtxorpcClient(new UtxorpcClientOptions { Url = server.Url, TimeProvider = null! }));
+        Assert.Equal("options", missing.ParamName);
+        Assert.Contains("UtxorpcClientOptions.TimeProvider is required.", missing.Message, StringComparison.Ordinal);
+
+        foreach ((string option, Action<UtxorpcClientOptions> invalidate) in new (string, Action<UtxorpcClientOptions>)[]
+        {
+            ("ResumeAttempts", options => options.ResumeAttempts = 0),
+            ("TimeProvider", options => options.TimeProvider = null!)
+        })
+        {
+            HostApplicationBuilder builder = Host.CreateApplicationBuilder();
+            builder.Services.AddUtxorpcClient("resuming", options =>
+            {
+                options.Url = server.Url;
+                invalidate(options);
+            });
+            using IHost host = builder.Build();
+            OptionsValidationException error = await Assert.ThrowsAsync<OptionsValidationException>(() => host.StartAsync(cancellation.Token));
+            Assert.Contains("Utxorpc client 'resuming':", error.Message, StringComparison.Ordinal);
+            Assert.Contains(option, error.Message, StringComparison.Ordinal);
+        }
+    }
+
     /// <summary>Creates one client lazily and disposes it with the container.</summary>
     [Fact]
     public async Task AddUtxorpcClientRegistersOneSingleton()

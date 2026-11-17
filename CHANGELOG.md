@@ -6,6 +6,7 @@
 
 - Start-up validation of the URL and retry, keep-alive and timeout settings for every `AddUtxorpcClient` registration, naming the client and invalid option.
 - `UtxorpcHealthCheck` to read the tip, with v1alpha fallback when v1beta is unsupported.
+- Opt-in `ResumeOnFailure` for FollowTip and WatchTx, with `ResumeAttempts` to limit reconnects.
 - Compiler warnings for null requests and bare `new(…)` on generated calls, with the “Use the short method” code fix.
 - `UtxorpcClient` with v1alpha and v1beta clients for every RPC.
 - Short methods for every RPC, with the same names in both versions.

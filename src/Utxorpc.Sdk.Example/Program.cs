@@ -141,6 +141,15 @@ static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient clie
     using UtxorpcClient largerMessages = new(url,
         configureChannel: o => o.MaxReceiveMessageSize = 16 * 1024 * 1024);
 
+    UtxorpcClientOptions resuming = new()
+    {
+        Url = url,
+        ResumeOnFailure = true,
+        ResumeAttempts = 10,
+        TimeProvider = TimeProvider.System
+    };
+    using UtxorpcClient resumable = new(resuming);
+
     // Share clients through dependency injection, with an optional name.
     ServiceCollection services = new();
     services.AddUtxorpcClient(o => o.Url = url);

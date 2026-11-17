@@ -9,7 +9,7 @@ namespace Utxorpc.Sdk.V1Alpha;
 /// <summary>One message of the v1alpha FollowTip stream: a block to apply, a block to undo, or a point to reset to.</summary>
 /// <remarks>Read it with a switch expression over <see cref="BlockApplied"/>, <see cref="BlockUndone"/> and <see cref="Reset"/>: a missing case is compiler warning CS8509 (a switch statement is not checked), and reading the cases allocates nothing. <see cref="Value"/> boxes. End the switch with <c>null =&gt; throw new UnreachableException()</c>: a default event holds no case.</remarks>
 [Union]
-public readonly struct FollowTipEvent : IUnion, IServerStream<FollowTipCall, FollowTipResponse, FollowTipEvent>
+public readonly struct FollowTipEvent : IUnion, IServerStream<FollowTipCall, FollowTipResponse, FollowTipEvent>, IResumableStream<FollowTipCall, FollowTipResponse>
 {
     private readonly FollowTipResponse? response;
 
@@ -71,6 +71,45 @@ public readonly struct FollowTipEvent : IUnion, IServerStream<FollowTipCall, Fol
 
     static FollowTipEvent IServerStream<FollowTipCall, FollowTipResponse, FollowTipEvent>.Map(FollowTipResponse message) =>
         message.ActionCase is FollowTipResponse.ActionOneofCase.None ? throw StreamErrors.UnknownAction("FollowTip") : new(message);
+
+    static bool IResumableStream<FollowTipCall, FollowTipResponse>.Read(FollowTipResponse message, out StreamAction action, out ChainBlock block)
+    {
+        action = message.ActionCase switch
+        {
+            FollowTipResponse.ActionOneofCase.Apply => StreamAction.Apply,
+            FollowTipResponse.ActionOneofCase.Undo => StreamAction.Undo,
+            _ => StreamAction.Reset
+        };
+        Utxorpc.V1Alpha.Cardano.BlockHeader? header = message.ActionCase switch
+        {
+            FollowTipResponse.ActionOneofCase.Apply => message.Apply.Cardano?.Header,
+            FollowTipResponse.ActionOneofCase.Undo => message.Undo.Cardano?.Header,
+            _ => null
+        };
+        if (action is StreamAction.Apply or StreamAction.Undo)
+        {
+            block = header is null ? default : new(header.Slot, header.Hash, header.Height);
+            return header is not null && !header.Hash.IsEmpty;
+        }
+        block = message.Reset is { } point ? new(point.Slot, point.Hash, point.Height) : default;
+        return message.Reset is not null;
+    }
+
+    static FollowTipCall IResumableStream<FollowTipCall, FollowTipResponse>.From(FollowTipCall state, ReadOnlySpan<ChainBlock> intersect)
+    {
+        FollowTipRequest request = state.Request.Clone();
+        request.Intersect.Clear();
+        foreach (ChainBlock point in intersect) request.Intersect.Add(new BlockRef { Slot = point.Slot, Hash = point.Hash, Height = point.Height });
+        return (state.Client, request);
+    }
+
+    static FollowTipResponse IResumableStream<FollowTipCall, FollowTipResponse>.Rollback(FollowTipResponse? applied, ChainBlock to) =>
+        new() { Reset = new() { Slot = to.Slot, Hash = to.Hash, Height = to.Height } };
+
+    static bool IResumableStream<FollowTipCall, FollowTipResponse>.PerTransaction => false;
+
+    static bool IResumableStream<FollowTipCall, FollowTipResponse>.SameTransaction(FollowTipResponse applied, FollowTipResponse undo) =>
+        false;
 }
 
 /// <summary>A block to apply.</summary>
