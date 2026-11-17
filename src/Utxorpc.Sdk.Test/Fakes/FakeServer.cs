@@ -27,6 +27,10 @@ internal sealed class FakeState
     public bool HoldSecondPage { get; set; }
     /// <summary>Gets or sets a status returned instead of an answer.</summary>
     public StatusCode? FailWith { get; set; }
+    /// <summary>Gets or sets a method-name substring limiting the configured failure.</summary>
+    public string? FailOnly { get; set; }
+    /// <summary>Gets or sets a separate status for v1alpha calls.</summary>
+    public StatusCode? FailV1AlphaWith { get; set; }
     /// <summary>Gets or sets the detail sent with a configured failure.</summary>
     public string FailDetail { get; set; } = "fake";
     /// <summary>Gets or sets whether FollowTip aborts its connection after its first message.</summary>
@@ -66,9 +70,11 @@ internal sealed class FakeState
             .Select(header => new KeyValuePair<string, string>(header.Key, header.Value)).ToArray();
         int call = Interlocked.Increment(ref callCount);
         Calls.Enqueue(new FakeCall(context.Method, headers, context.GetHttpContext().Connection.Id));
-        if (FailWith is not null && (FailFirstCalls is null || call <= FailFirstCalls))
+        StatusCode? failure = FailOnly is null || context.Method.Contains(FailOnly, StringComparison.Ordinal) ? FailWith : null;
+        if (context.Method.Contains("v1alpha", StringComparison.Ordinal) && FailV1AlphaWith is not null) failure = FailV1AlphaWith;
+        if (failure is not null && (FailFirstCalls is null || call <= FailFirstCalls))
         {
-            throw new RpcException(new Status(FailWith.Value, FailDetail));
+            throw new RpcException(new Status(failure.Value, FailDetail));
         }
     }
 }

@@ -21,6 +21,7 @@ namespace Utxorpc.Sdk;
 public sealed class UtxorpcClient : IDisposable
 {
     private const string UrlRequired = "UtxorpcClientOptions.Url is required.";
+    private const string UrlInvalid = "The URL is not a valid URI; it needs a scheme, such as http:// or https://.";
     private static readonly TimeSpan MaxTimeout = TimeSpan.FromMilliseconds(int.MaxValue);
     private static readonly UtxorpcClientOptions Defaults = new();
     private GrpcChannel? ownedChannel;
@@ -74,7 +75,7 @@ public sealed class UtxorpcClient : IDisposable
         }
         catch (UriFormatException exception)
         {
-            throw new UriFormatException("The URL is not a valid URI; it needs a scheme, such as http:// or https://.", exception);
+            throw new UriFormatException(UrlInvalid, exception);
         }
         (V1Alpha, V1Beta) = CreateClients(ownedChannel, metadata, defaultTimeout);
     }
@@ -103,7 +104,7 @@ public sealed class UtxorpcClient : IDisposable
         Interlocked.Exchange(ref ownedHandler, null)?.Dispose();
     }
 
-    private static string ValidateOptions(UtxorpcClientOptions options)
+    internal static string ValidateOptions(UtxorpcClientOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         if (options.MaxAttempts is < 1 or > 5)
@@ -114,6 +115,7 @@ public sealed class UtxorpcClient : IDisposable
             throw new ArgumentOutOfRangeException(nameof(options), options.DefaultTimeout, "DefaultTimeout must be positive and at most 2147483647 milliseconds (about 24.8 days), or infinite.");
         if (string.IsNullOrWhiteSpace(options.Url))
             throw options.Url is null ? new ArgumentNullException(nameof(options), UrlRequired) : new ArgumentException(UrlRequired, nameof(options));
+        if (!Uri.TryCreate(options.Url, UriKind.Absolute, out _)) throw new UriFormatException(UrlInvalid);
         return options.Url;
     }
 

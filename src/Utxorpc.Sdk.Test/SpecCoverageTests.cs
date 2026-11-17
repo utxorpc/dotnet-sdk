@@ -96,6 +96,36 @@ public sealed class SpecCoverageTests
         Assert.Equal(signatures[0].Select(signature => signature.Replace("V1Alpha", "V1Beta", StringComparison.Ordinal)).Order(StringComparer.Ordinal), signatures[1].Order(StringComparer.Ordinal));
     }
 
+    /// <summary>Requires exactly one documented mask target for each masked request in both versions.</summary>
+    [Fact]
+    public void EveryMaskedRequestIsInTheReadme()
+    {
+        string readme = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "docs", "README.md"));
+        string section = readme.Split("## Field masks and bytes", StringSplitOptions.None)[1].Split("## Cardano inputs", StringSplitOptions.None)[0];
+        Dictionary<(string Version, string Request), string> rows = section.Split('\n')
+            .Where(line => line.StartsWith("| v1", StringComparison.Ordinal))
+            .Select(line => line.Split('|').Skip(1).Take(3).Select(cell => cell.Trim().Trim('`')).ToArray())
+            .ToDictionary(cells => (cells[0], cells[1]), cells => cells[2]);
+        MethodDescriptor[] masked = MaskedMethods().ToArray();
+        Assert.Equal(masked.Length, rows.Count);
+        foreach (MethodDescriptor rpc in masked)
+        {
+            string version = rpc.InputType.ClrType.Namespace!.Split('.')[1];
+            string prefix = $"Utxorpc.{version}.";
+            Assert.True(rows.TryGetValue((version.ToLowerInvariant(), rpc.InputType.ClrType.FullName![prefix.Length..]), out string? target),
+                $"Missing mask row for {rpc.InputType.FullName}");
+            if (rpc.Name is "WatchTx" or "WatchMempool")
+            {
+                Assert.Equal("Ignored by Dolos 1.6.3 and Dingo 0.94.1", target);
+                continue;
+            }
+            MessageDescriptor expected = rpc.Service.Name == "SyncService"
+                ? rpc.InputType.File.MessageTypes.Single(message => message.Name == "AnyChainBlock") : rpc.OutputType;
+            MessageDescriptor actual = Assert.Single(rpc.InputType.File.MessageTypes, message => message.ClrType.FullName == prefix + target);
+            Assert.Same(expected, actual);
+        }
+    }
+
     /// <summary>Requires complete caller-facing documentation, including extension-member inheritdoc targets.</summary>
     [Fact]
     public void EveryPublicCallIsDocumented()
@@ -130,9 +160,11 @@ public sealed class SpecCoverageTests
             : type.FullName!.Replace('+', '.');
     }
 
-    internal static HashSet<Type> MaskedRequestTypes(string version) => GeneratedClients()
-        .Where(client => client.Namespace!.Split('.')[1] == version).SelectMany(client => Descriptor(client).Methods)
-        .Where(rpc => rpc.InputType.FindFieldByName("field_mask") is not null).Select(rpc => rpc.InputType.ClrType).ToHashSet();
+    internal static HashSet<Type> MaskedRequestTypes(string version) => MaskedMethods()
+        .Where(rpc => rpc.InputType.ClrType.Namespace!.Split('.')[1] == version).Select(rpc => rpc.InputType.ClrType).ToHashSet();
+
+    private static IEnumerable<MethodDescriptor> MaskedMethods() => GeneratedClients().SelectMany(client => Descriptor(client).Methods)
+        .Where(rpc => rpc.InputType.FindFieldByName("field_mask") is not null);
 
     internal static ServiceDescriptor Descriptor(Type client) => (ServiceDescriptor)client.DeclaringType!
         .GetProperty("Descriptor", BindingFlags.Public | BindingFlags.Static)!.GetValue(null)!;

@@ -73,6 +73,7 @@ catch (OperationCanceledException)
 
 // These additional examples are compiled but not called; no transaction is submitted by default.
 _ = nameof(OtherCallsAsync);
+_ = nameof(TestingAsync);
 
 static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient client, ReadOnlyMemory<byte> address, ReadOnlyMemory<byte> txHash,
     ReadOnlyMemory<byte> signedTx, ReadOnlyMemory<byte> datumHash, ReadOnlyMemory<byte> paymentKeyHash,
@@ -82,7 +83,8 @@ static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient clie
     Console.WriteLine(parameters.LedgerTip.Slot);
     BlockPoint point = new(parameters.LedgerTip.Slot, parameters.LedgerTip.Hash.Memory);
     // Fetch only native block bytes.
-    FieldMask bytesOnly = FieldMask.FromString("native_bytes");
+    FieldMask bytesOnly = FieldMask.FromFieldNumbers<Beta.Sync.AnyChainBlock>(Beta.Sync.AnyChainBlock.NativeBytesFieldNumber);
+    FieldMask headerOnly = FieldMask.FromString<Beta.Sync.AnyChainBlock>("cardano.header");
     await client.V1Beta.Sync.FetchBlockAsync(point, bytesOnly, cancellationToken);
     Beta.Query.ReadUtxosResponse outputs = await client.V1Beta.Query.ReadUtxosAsync([new(txHash, 0)], cancellationToken: cancellationToken);
     Console.WriteLine(outputs.Items.Count);
@@ -186,4 +188,38 @@ static async Task OtherCallsAsync(string url, string? apiKey, UtxorpcClient clie
         break;
     }
     await foreach (FollowTipEvent _ in client.V1Beta.Sync.FollowTipAsync(cancellationToken: cancellationToken)) break;
+}
+
+static async Task TestingAsync()
+{
+    FakeChannel channel = new(new FakeInvoker(request => request is Beta.Sync.ReadTipRequest
+        ? new Beta.Sync.ReadTipResponse { Tip = new() { Slot = 42 } } : null));
+    using UtxorpcClient client = new(channel);
+    Console.WriteLine((await client.V1Beta.Sync.ReadTipAsync()).Tip.Slot); // 42
+    try
+    {
+        await client.V1Beta.Query.ReadParamsAsync();
+    }
+    catch (UtxorpcException error) when (error.Kind == UtxorpcErrorKind.NotFound)
+    {
+        Console.WriteLine(error.Detail); // not in the fake
+    }
+}
+
+sealed class FakeChannel(CallInvoker invoker) : ChannelBase("test")
+{
+    public override CallInvoker CreateCallInvoker() => invoker;
+}
+sealed class FakeInvoker(Func<object, object?> answer) : CallInvoker
+{
+    public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
+    {
+        Task<TResponse> response = answer(request) is TResponse value ? Task.FromResult(value)
+            : Task.FromException<TResponse>(new RpcException(new Status(StatusCode.NotFound, "not in the fake")));
+        return new AsyncUnaryCall<TResponse>(response, Task.FromResult(Metadata.Empty), () => Status.DefaultSuccess, () => Metadata.Empty, () => { });
+    }
+    public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) => throw new NotSupportedException();
+    public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) => throw new NotSupportedException();
+    public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options) => throw new NotSupportedException();
+    public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options) => throw new NotSupportedException();
 }

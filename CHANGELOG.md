@@ -4,6 +4,8 @@
 
 ### Added
 
+- Start-up validation of the URL and retry, keep-alive and timeout settings for every `AddUtxorpcClient` registration, naming the client and invalid option.
+- `UtxorpcHealthCheck` to read the tip, with v1alpha fallback when v1beta is unsupported.
 - Compiler warnings for null requests and bare `new(…)` on generated calls, with the “Use the short method” code fix.
 - `UtxorpcClient` with v1alpha and v1beta clients for every RPC.
 - Short methods for every RPC, with the same names in both versions.
@@ -33,7 +35,7 @@
 - Targets net11.0 only. On .NET 10, stay on 1.8.0-alpha or use the Spec package's generated clients over your own `GrpcChannel`.
 - Uses one channel for all services and both versions.
 - Cancelling with a token throws `OperationCanceledException` on channels the SDK creates. An expired deadline throws `RpcException` with `DeadlineExceeded` on every call, its headers included.
-- References Grpc.Net.Client 2.85.0 and Google.Protobuf 3.36.2 directly.
+- References Grpc.Net.Client 2.85.0, Google.Protobuf 3.36.2 and Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions 11.0.0 directly.
 - Includes package licence and repository metadata.
 
 ### Removed

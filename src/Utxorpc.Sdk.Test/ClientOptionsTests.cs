@@ -9,6 +9,8 @@ using Grpc.Net.Client;
 using Grpc.Net.Client.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Utxorpc.Sdk.Test.Fakes;
 using Xunit.Abstractions;
 using Alpha = Utxorpc.V1Alpha;
@@ -525,6 +527,109 @@ public sealed class ClientOptionsTests(ITestOutputHelper output) : ClientTestBas
         Assert.Equal(42UL, (await provider.GetRequiredService<UtxorpcClient>().V1Beta.Sync.ReadTipAsync(cancellation.Token)).Tip.Slot);
         AssertCalls("/utxorpc.v1beta.sync.SyncService/ReadTip", 2);
         Assert.All(server.State.Calls, call => Assert.Contains(new KeyValuePair<string, string>("x-test", "1"), call.Headers));
+    }
+
+    /// <summary>Rejects a missing URL at start even if a later registration replaces the client.</summary>
+    [Fact]
+    public async Task StartFailsNamingTheClientAndTheOption()
+    {
+        HostApplicationBuilder builder = Host.CreateApplicationBuilder();
+        builder.Services.AddUtxorpcClient("preprod", _ => { });
+        builder.Services.AddUtxorpcClient("preprod", options => options.Url = server.Url);
+        using IHost host = builder.Build();
+        OptionsValidationException error = await Assert.ThrowsAsync<OptionsValidationException>(() => host.StartAsync(cancellation.Token));
+        Assert.Equal("Utxorpc client 'preprod': UtxorpcClientOptions.Url is required. (Parameter 'options')", error.Message);
+    }
+
+    /// <summary>Reports every invalid registration with its own client name and option failure.</summary>
+    [Fact]
+    public async Task TwoBadClientsAreBothNamed()
+    {
+        HostApplicationBuilder builder = Host.CreateApplicationBuilder();
+        builder.Services.AddUtxorpcClient("preprod", _ => { });
+        builder.Services.AddUtxorpcClient(options => options.Url = "127.0.0.1:50061");
+        using IHost host = builder.Build();
+        AggregateException error = await Assert.ThrowsAsync<AggregateException>(() => host.StartAsync(cancellation.Token));
+        Assert.Equal(new[]
+        {
+            "Utxorpc client 'preprod': UtxorpcClientOptions.Url is required. (Parameter 'options')",
+            "Utxorpc client: The URL is not a valid URI; it needs a scheme, such as http:// or https://."
+        }.Order(StringComparer.Ordinal), error.InnerExceptions.Select(exception => exception.Message).Order(StringComparer.Ordinal));
+    }
+
+    /// <summary>Names a bad client on first resolve when no host starts the container.</summary>
+    [Fact]
+    public void WithoutAHostTheFirstResolveNamesTheClient()
+    {
+        ServiceCollection services = new();
+        services.AddUtxorpcClient("preprod", _ => { });
+        using ServiceProvider provider = services.BuildServiceProvider();
+        OptionsValidationException error = Assert.Throws<OptionsValidationException>(() => provider.GetRequiredKeyedService<UtxorpcClient>("preprod"));
+        Assert.Equal("Utxorpc client 'preprod': UtxorpcClientOptions.Url is required. (Parameter 'options')", error.Message);
+    }
+
+    /// <summary>Configures once across host start and resolution, then reads the configured server's tip.</summary>
+    [Fact]
+    public async Task AValidClientStartsAndResolves()
+    {
+        int configured = 0;
+        HostApplicationBuilder builder = Host.CreateApplicationBuilder();
+        builder.Services.AddSingleton(new Uri(server.Url));
+        builder.Services.AddUtxorpcClient((provider, options) =>
+        {
+            configured++;
+            options.Url = provider.GetRequiredService<Uri>().ToString();
+        });
+        using IHost host = builder.Build();
+        await host.StartAsync(cancellation.Token);
+        Assert.Equal(42UL, (await host.Services.GetRequiredService<UtxorpcClient>().V1Beta.Sync.ReadTipAsync(cancellation.Token)).Tip.Slot);
+        Assert.Equal(1, configured);
+        await host.StopAsync(cancellation.Token);
+    }
+
+    /// <summary>Keeps each registration's headers and channel hook isolated, including duplicate and empty keys.</summary>
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("preprod", "preprod")]
+    [InlineData(null, "")]
+    public async Task RegistrationsKeepTheirOwnConfiguration(string? firstKey, string? secondKey)
+    {
+        int hooks = 0;
+        ServiceCollection services = new();
+        Register(firstKey, options =>
+        {
+            options.Url = server.Url;
+            options.Headers["x-test-marker"] = "first";
+            options.ConfigureChannel = _ => hooks++;
+        });
+        Register(secondKey, options => options.Url = server.Url);
+        using ServiceProvider provider = services.BuildServiceProvider();
+        UtxorpcClient last = secondKey is null ? provider.GetRequiredService<UtxorpcClient>() : provider.GetRequiredKeyedService<UtxorpcClient>(secondKey);
+        await CheckAsync(last, false);
+        Assert.Equal(0, hooks);
+        UtxorpcClient[] firstGroup = ResolveAll(firstKey);
+        UtxorpcClient[] secondGroup = ResolveAll(secondKey);
+        Assert.Equal(firstKey == secondKey ? 2 : 1, firstGroup.Length);
+        Assert.Equal(firstKey == secondKey ? 2 : 1, secondGroup.Length);
+        Assert.NotSame(firstGroup[0], last);
+        await CheckAsync(firstGroup[0], true);
+        await CheckAsync(secondGroup[^1], false);
+        Assert.Same(last, secondGroup[^1]);
+        Assert.Equal(1, hooks);
+
+        void Register(string? key, Action<UtxorpcClientOptions> configure)
+        {
+            if (key is null) services.AddUtxorpcClient(configure);
+            else services.AddUtxorpcClient(key, configure);
+        }
+        UtxorpcClient[] ResolveAll(string? key) => key is null ? provider.GetServices<UtxorpcClient>().ToArray() : provider.GetKeyedServices<UtxorpcClient>(key).ToArray();
+        async Task CheckAsync(UtxorpcClient client, bool marked)
+        {
+            Assert.Equal(42UL, (await client.V1Beta.Sync.ReadTipAsync(cancellation.Token)).Tip.Slot);
+            FakeCall call = Assert.Single(server.State.Calls);
+            Assert.Equal(marked ? new[] { new KeyValuePair<string, string>("x-test-marker", "first") } : [], call.Headers.Where(header => header.Key == "x-test-marker"));
+            server.State.Calls.Clear();
+        }
     }
 
     /// <summary>Disposes only the SDK transport, even when the hook replaces or wraps it.</summary>

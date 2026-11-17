@@ -24,7 +24,7 @@ Requires .NET 11. Utxorpc.Sdk is a .NET client for UTxO RPC. One `UtxorpcClient`
 dotnet add package Utxorpc.Sdk --version 2.0.0-alpha
 ```
 
-Requires .NET 11: the package targets net11.0 only and depends on Utxorpc.Spec 0.19.2-alpha or newer. On .NET 10, stay on Utxorpc.Sdk 1.8.0-alpha, or reference Utxorpc.Spec 0.19.2-alpha (which targets net10.0) and use its generated clients over your own `GrpcChannel`.
+Requires .NET 11: the package targets net11.0 only and depends on Utxorpc.Spec 0.19.2-alpha or newer, Grpc.Net.Client 2.85.0, Google.Protobuf 3.36.2 and Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions 11.0.0. ASP.NET Core apps already have the health-check abstractions. On .NET 10, stay on Utxorpc.Sdk 1.8.0-alpha, or reference Utxorpc.Spec 0.19.2-alpha (which targets net10.0) and use its generated clients over your own `GrpcChannel`.
 
 ## Quick start
 
@@ -132,16 +132,47 @@ Neither warning covers a token in the mask's place (`FetchBlockAsync(point, ct)`
 
 ## Field masks and bytes
 
-Byte fields are `ByteString`; use `.Memory` or `.Span` to read them without copying. The optional `fieldMask` comes before the token. Make a mask once and reuse it; paths are the server's to interpret. Spec messages carry no nullability annotations: `Cardano` (under a mask) and `Header` can be null. For JSON, `Google.Protobuf.JsonFormatter` writes proto3 JSON; System.Text.Json writes byte fields as number arrays. Here, `client` and `point` are a connected client and block point:
+Byte fields are `ByteString`; use `.Memory` or `.Span` to read them without copying. The optional `fieldMask` comes before the token. Make a mask once and reuse it. Spec messages carry no nullability annotations: `Cardano` (under a mask) and `Header` can be null. For JSON, `Google.Protobuf.JsonFormatter` writes proto3 JSON; System.Text.Json writes byte fields as number arrays. Here, `client` and `point` are a connected client and block point:
 
 ```csharp
 using Google.Protobuf.WellKnownTypes;
-FieldMask bytesOnly = FieldMask.FromString("native_bytes");
+FieldMask bytesOnly = FieldMask.FromFieldNumbers<Beta.Sync.AnyChainBlock>(Beta.Sync.AnyChainBlock.NativeBytesFieldNumber);
+FieldMask headerOnly = FieldMask.FromString<Beta.Sync.AnyChainBlock>("cardano.header");
 await client.V1Beta.Sync.FetchBlockAsync(point, bytesOnly, cancellationToken);
 await foreach (Beta.Sync.AnyChainBlock historicalBlock in client.V1Beta.Sync.DumpAllHistoryAsync(
     point, pageSize: 10, fieldMask: bytesOnly, cancellationToken: cancellationToken))
     Console.WriteLine(historicalBlock.NativeBytes.Length);
 ```
+
+Masks select paths from the message in this table, not from the request. The typed builders check field numbers or paths against the Spec's descriptors. Which paths a server honours is the server's choice.
+
+| Version | Request | Paths select from |
+|---|---|---|
+| v1alpha | `Query.ReadDataRequest` | `Query.ReadDataResponse` |
+| v1alpha | `Query.ReadEraSummaryRequest` | `Query.ReadEraSummaryResponse` |
+| v1alpha | `Query.ReadGenesisRequest` | `Query.ReadGenesisResponse` |
+| v1alpha | `Query.ReadParamsRequest` | `Query.ReadParamsResponse` |
+| v1alpha | `Query.ReadTxRequest` | `Query.ReadTxResponse` |
+| v1alpha | `Query.ReadUtxosRequest` | `Query.ReadUtxosResponse` |
+| v1alpha | `Query.SearchUtxosRequest` | `Query.SearchUtxosResponse` |
+| v1alpha | `Submit.WatchMempoolRequest` | Ignored by Dolos 1.6.3 and Dingo 0.94.1 |
+| v1alpha | `Sync.DumpHistoryRequest` | `Sync.AnyChainBlock` |
+| v1alpha | `Sync.FetchBlockRequest` | `Sync.AnyChainBlock` |
+| v1alpha | `Sync.FollowTipRequest` | `Sync.AnyChainBlock` |
+| v1alpha | `Watch.WatchTxRequest` | Ignored by Dolos 1.6.3 and Dingo 0.94.1 |
+| v1beta | `Query.ReadDataRequest` | `Query.ReadDataResponse` |
+| v1beta | `Query.ReadEraSummaryRequest` | `Query.ReadEraSummaryResponse` |
+| v1beta | `Query.ReadGenesisRequest` | `Query.ReadGenesisResponse` |
+| v1beta | `Query.ReadParamsRequest` | `Query.ReadParamsResponse` |
+| v1beta | `Query.ReadStateRequest` | `Query.ReadStateResponse` |
+| v1beta | `Query.ReadTxRequest` | `Query.ReadTxResponse` |
+| v1beta | `Query.ReadUtxosRequest` | `Query.ReadUtxosResponse` |
+| v1beta | `Query.SearchUtxosRequest` | `Query.SearchUtxosResponse` |
+| v1beta | `Submit.WatchMempoolRequest` | Ignored by Dolos 1.6.3 and Dingo 0.94.1 |
+| v1beta | `Sync.DumpHistoryRequest` | `Sync.AnyChainBlock` |
+| v1beta | `Sync.FetchBlockRequest` | `Sync.AnyChainBlock` |
+| v1beta | `Sync.FollowTipRequest` | `Sync.AnyChainBlock` |
+| v1beta | `Watch.WatchTxRequest` | Ignored by Dolos 1.6.3 and Dingo 0.94.1 |
 
 ## Cardano inputs
 
@@ -217,6 +248,24 @@ UtxorpcClient preprod = provider.GetRequiredKeyedService<UtxorpcClient>("preprod
 `AddUtxorpcClient(o => …)` gives one shared client, disposed with the container. Inside the delegate, bind configuration with `GetSection("Utxorpc").Bind(o)`. Use `AddUtxorpcClient("preprod", …)` for a named client and inject it with `[FromKeyedServices("preprod")]`. Keep API keys out of logs and source; use configuration or user secrets.
 
 `AddUtxorpcClient((provider, o) => …)` configures from other services (settings, a handler the container owns and disposes). In a console app, add the `Microsoft.Extensions.DependencyInjection` package for `BuildServiceProvider`.
+
+A registration with a missing or invalid `Url`, or out-of-range retry, keep-alive or timeout settings, stops the host at start. For example: `Utxorpc client 'preprod': UtxorpcClientOptions.Url is required. (Parameter 'options')`. Without a host, validation happens on the first resolve. Header names are checked and the channel hook runs when the client is first resolved. Every registration is checked, including one a later registration replaced. Each registration keeps its own options, headers and channel hook. A test host that removes or replaces the client still validates the original registration at start: give it a valid `Url` in the test configuration.
+
+### Health check
+
+In an ASP.NET Core app, register the check beside the shared client:
+
+```text
+builder.Services.AddHealthChecks().AddCheck<UtxorpcHealthCheck>("utxorpc", timeout: TimeSpan.FromSeconds(5));
+```
+
+For a named client, use `Microsoft.Extensions.Diagnostics.HealthChecks` and:
+
+```text
+builder.Services.AddHealthChecks().Add(new HealthCheckRegistration("preprod", provider => new UtxorpcHealthCheck(provider.GetRequiredKeyedService<UtxorpcClient>("preprod")), null, null, TimeSpan.FromSeconds(5)));
+```
+
+The check reads the v1beta tip, falling back to v1alpha when v1beta is unsupported, and reports `tip slot N` or the registration's failure status with the error. Every check tries v1beta again. The time limit also covers a server that accepts the connection and never answers.
 
 ## Streams and cancellation
 
@@ -317,7 +366,7 @@ using UtxorpcClient largerMessages = new(url,
 
 | 1.8.0-alpha | Now |
 |---|---|
-| `new QueryServiceClient(url, headers)`, `SubmitServiceClient`, `SyncServiceClient`, `WatchServiceClient` | One `new UtxorpcClient(url, headers)` (or `new UtxorpcClient(new UtxorpcClientOptions { … })`, or `services.AddUtxorpcClient(…)`); use `X.Query`, `X.Submit`, `X.Sync`, `X.Watch`; dispose it at shutdown. An empty or blank URL throws `ArgumentException`. |
+| `new QueryServiceClient(url, headers)`, `SubmitServiceClient`, `SyncServiceClient`, `WatchServiceClient` | One `new UtxorpcClient(url, headers)` (or `new UtxorpcClient(new UtxorpcClientOptions { … })`, or `services.AddUtxorpcClient(…)`); use `X.Query`, `X.Submit`, `X.Sync`, `X.Watch`; dispose it at shutdown. An empty or blank URL throws `ArgumentException`; with `AddUtxorpcClient`, it throws `OptionsValidationException` at host start (or first resolve without a host). |
 | `ReadUtxosAsync(TxoRef[] keys, FieldMask?)` | `X.Query.ReadUtxosAsync([new(txHash, index)], m, ct)` |
 | `SearchUtxosAsync(Predicate, uint maxItems, FieldMask?, string? start_token)` | `X.Query.SearchAllUtxosAsync(predicate, pageSize, m, ct)` reads every page; one page: the raw `SearchUtxosAsync(new() { … })`, where an empty `NextToken` ends the pages (v1beta: absent or empty, so test `string.IsNullOrEmpty(response.NextToken)`; Dolos sends a present empty one). |
 | `ReadParamsAsync(FieldMask?)`, `ReadGenesisAsync`, `ReadEraSummaryAsync` | `X.Query.ReadParamsAsync(m, ct)`, `ReadGenesisAsync(m, ct)`, `ReadEraSummaryAsync(m, ct)`; `Values.Cardano` is a typed `PParams`. |
@@ -337,11 +386,57 @@ using UtxorpcClient largerMessages = new(url,
 | Cancelling a stream threw `RpcException` (`Cancelled`) | `OperationCanceledException` on a channel the SDK creates; on your own channel set `ThrowOperationCanceledOnCancellation = true`. |
 | Header names were HTTP header names | Valid gRPC metadata keys only (letters, digits, `-`, `_`, `.`), else `ArgumentException`; upper case is lowered; `-bin` is rejected; in `UtxorpcClientOptions.Headers` names that differ only in case are one header; per-call headers are added beside the client's. |
 | A block or FollowTip event without a parsed form was dropped; a WatchTx transaction without one threw `InvalidOperationException` | It is delivered; check `ChainCase` before `.Cardano`. |
-| Depended on Utxorpc.Spec only | Also Grpc.Net.Client 2.85.0 and Google.Protobuf 3.36.2 (the DI abstractions come with .NET 11). |
+| Depended on Utxorpc.Spec only | Also Grpc.Net.Client 2.85.0, Google.Protobuf 3.36.2 and Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions 11.0.0 (ASP.NET Core apps already have the health-check abstractions; the DI abstractions come with .NET 11). |
 | Targeted net10.0 | Targets **net11.0 only**. On .NET 10, stay on 1.8.0-alpha, or reference Utxorpc.Spec 0.19.2-alpha (it targets net10.0) and use its generated clients over your own `GrpcChannel`. |
 | A call failing with `Unavailable` failed at once; no keep-alive | Retried up to 3 attempts in all (the default policy excludes `SubmitTx` and server streams); a ping after 60 s without incoming data while a call is open; connect timeout 15 s. `MaxAttempts = 1` and `KeepAliveInterval = Timeout.InfiniteTimeSpan` restore the old behaviour. |
 
 Callers on 1.7.0-alpha or older also meet the Spec 0.19 rename `Utxorpc.V1alpha` → `Utxorpc.V1Alpha`.
+
+## Testing your code
+
+Pass a fake `CallInvoker` through a caller-owned `ChannelBase`. Return a failed task inside the unary call, rather than throwing from the invoker: a synchronous throw leaves the generated call before the short method can type the error.
+
+```csharp
+using Grpc.Core;
+FakeChannel channel = new(new FakeInvoker(request => request is Beta.Sync.ReadTipRequest
+    ? new Beta.Sync.ReadTipResponse { Tip = new() { Slot = 42 } } : null));
+using UtxorpcClient client = new(channel);
+Console.WriteLine((await client.V1Beta.Sync.ReadTipAsync()).Tip.Slot); // 42
+try
+{
+    await client.V1Beta.Query.ReadParamsAsync();
+}
+catch (UtxorpcException error) when (error.Kind == UtxorpcErrorKind.NotFound)
+{
+    Console.WriteLine(error.Detail); // not in the fake
+}
+
+sealed class FakeChannel(CallInvoker invoker) : ChannelBase("test")
+{
+    public override CallInvoker CreateCallInvoker() => invoker;
+}
+sealed class FakeInvoker(Func<object, object?> answer) : CallInvoker
+{
+    public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
+    {
+        Task<TResponse> response = answer(request) is TResponse value ? Task.FromResult(value)
+            : Task.FromException<TResponse>(new RpcException(new Status(StatusCode.NotFound, "not in the fake")));
+        return new AsyncUnaryCall<TResponse>(response, Task.FromResult(Metadata.Empty), () => Status.DefaultSuccess, () => Metadata.Empty, () => { });
+    }
+    public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) => throw new NotSupportedException();
+    public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) => throw new NotSupportedException();
+    public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options) => throw new NotSupportedException();
+    public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options) => throw new NotSupportedException();
+}
+```
+
+## Telemetry
+
+grpc-dotnet emits one span per call from the `Grpc.Net.Client` activity source, with `grpc.method` and `grpc.status_code` tags.
+A resumed stream's reconnect is a new call and a new span.
+With OpenTelemetry, subscribe with `AddSource("Grpc.Net.Client")` on your tracing builder.
+The `Grpc.Net.Client` event source exposes `total-calls`, `current-calls`, `calls-failed`, `calls-deadline-exceeded`, `messages-sent` and `messages-received`.
+The SDK adds no telemetry dependency.
 
 ## Tests
 
