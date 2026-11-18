@@ -140,7 +140,7 @@ Use `using Utxorpc.Sdk;`. The short methods are in `V1AlphaQueryExtensions`, `V1
 
 `references` is a `ReadOnlySpan<OutputReference>` (`new OutputReference(txHash, index)`); `point` is a `BlockPoint` (`new BlockPoint(slot, hash)`). Hashes, addresses and transaction bytes are `ReadOnlyMemory<byte>`; `datumHashes` is a `ReadOnlySpan<ReadOnlyMemory<byte>>`. A null predicate in `WatchTxAsync` or `WatchMempoolAsync` sends no filter; null `from` sends no start point. `points` and `intersect` are `ReadOnlySpan<BlockPoint>`, `txHashes` a `ReadOnlySpan<ReadOnlyMemory<byte>>`: write `[a, b]`, or pass an array or a span; values are sent in order, and the server finds the intersection among the points. `BlockPoint` and `OutputReference` compare by value (their bytes, not the array), so they work as `HashSet` and dictionary keys; do not change the bytes while they are keys.
 
-Use `SearchAllUtxosAsync` for a predicate or `SearchUtxosByAddressAsync` to match an exact address. Both read every page: page size 0 lets the server choose; a negative size throws. `DumpAllHistoryAsync` requires a page size of at least 1; see [Server compatibility](#server-compatibility) for tested limits and page sizes. A page is one message: keep it under the 4 MB receive limit, use a mask, or raise the limit (see Message size). The server decides whether to include the block at `from`.
+Use `SearchAllUtxosAsync` for a predicate or `SearchUtxosByAddressAsync` to match an exact address. Both read every page: page size 0 lets the server choose; a negative size throws. `DumpAllHistoryAsync` requires a page size of at least 1; see [Server compatibility](#server-compatibility) for tested limits and page sizes. A page is one message. A smaller page or a field mask helps stay under the 4 MB receive limit only if the server honours it. Dolos v1.6.3 honours neither on `SearchUtxos`, so [raise the receive limit](#message-size) if needed. The server decides whether to include the block at `from`.
 
 The package includes two compiler warnings:
 
@@ -199,6 +199,8 @@ For FollowTip with `ResumeOnFailure`, keep `cardano.header` in the mask even if 
 | v1beta | `Sync.FetchBlockRequest` | `Sync.AnyChainBlock` |
 | v1beta | `Sync.FollowTipRequest` | `Sync.AnyChainBlock` |
 | v1beta | `Watch.WatchTxRequest` | Not named by the Spec |
+
+In `ReadUtxosResponse` and `SearchUtxosResponse`, a mask can name `items` only as a whole: a repeated field can only end a path. Google.Protobuf's typed builder rejects `items.txo_ref`. The Spec defines no per-output mask. Dolos v1.6.3 returned whole outputs with every mask tested on these calls; see [Server compatibility](#server-compatibility).
 
 ## Cardano inputs
 
@@ -427,7 +429,7 @@ catch (UtxorpcException e) when (e.Kind == UtxorpcErrorKind.InvalidTx)
 | `Unsupported` | The server does not offer the call. | Use a server that does. |
 | `Unavailable` | The server could not be reached or the connection broke. | Try again (SubmitTx: check first, see Connecting); `IsTransient` identifies temporary failures. |
 | `Timeout` | The deadline or `DefaultTimeout` passed. | Check the server and choose a suitable deadline. |
-| `Other` | Another failure. | Read `StatusCode` and `Detail`. |
+| `Other` | Another failure. | Read `StatusCode` and `Detail`. For `ResourceExhausted` on a large response, see [Message size](#message-size). |
 
 `UtxorpcException` is an `RpcException`, so existing catch blocks still match. Raw generated calls keep gRPC's exceptions, with no SDK error typing or resume. A raw stream's `ReadAllAsync()` can throw `TaskCanceledException` if the connection fails. With the SDK's default handler, short stream and unary methods report a failed connection as `UtxorpcException` with `Kind.Unavailable`.
 
@@ -469,18 +471,20 @@ catch (OperationCanceledException)
 }
 ```
 
-Outside a browser, the SDK's default handler reports `Unavailable` after 15 s per connection attempt if the host does not answer (3 attempts by default for unary calls that can retry). If the connection fails, check that the URL scheme matches the server: use `http://` for plaintext or `https://` for TLS. A mismatch that shows up as a connect timeout can take the same 15 s per attempt.
+Outside a browser, the SDK's default handler reports `Unavailable` after 15 s per connection attempt if the host does not answer (3 attempts by default for unary calls that can retry). If the connection fails, check that the URL scheme matches the server: use `http://` for plaintext or `https://` for TLS.
 
 With a custom `ConnectCallback` or `HttpClient` set through `ConfigureChannel`, a connect timeout reported by the handler as cancellation gives a short stream `Kind.Other` (`StatusCode.Cancelled`). That error is not transient, so the stream does not resume. On your own channel, the handler's `ConnectTimeout` applies if you set one; otherwise, the system's connect timeout applies (about 2 minutes was seen).
 
 ## Message size
 
-The default gRPC receive limit is 4 MB per message. A large `DumpHistory` page or `SearchUtxos` answer can exceed it. Raise it on the channel:
+The default gRPC receive limit is 4 MB per message. A large `DumpHistory` page or `SearchUtxos` answer can exceed it. If a response exceeds the limit, a short method throws `UtxorpcException` with `Kind.Other` and `StatusCode.ResourceExhausted` ("Received message exceeds the maximum configured message size."). The error is not transient: the same response will fail again. Raise `MaxReceiveMessageSize` on the channel:
 
 ```csharp
 using UtxorpcClient largerMessages = new(url,
     configureChannel: o => o.MaxReceiveMessageSize = 16 * 1024 * 1024);
 ```
+
+In the 2026-11-18 preprod check, Dolos v1.6.3 sent all 935 outputs for one script address in one v1beta `SearchUtxos` message (about 13.9 MB), regardless of page size. The 16 MB client above read them.
 
 ## Server compatibility
 
@@ -532,6 +536,10 @@ Other observations as of 2026-11-18 for Dolos v1.6.3 and Dingo v0.94.1 (not chec
 Dolos v1.6.3 accepted `DumpHistory` pages of at most 100 blocks. On preprod, 10 blocks were about 0.7–0.8 MB with the parsed form, or 0.09 MB with `native_bytes` only. This version can repeat the tip block, so WatchTx can yield its matching transactions twice.
 
 Dolos v1.6.3 returned a block when `FetchBlock` got its slot with an all-zero hash. Its v1beta `ReadTip` reported height 0 in the tip reference, alongside a nonzero slot and a hash.
+
+The operator configures the history window for Dolos v1.6.3 (`max_history`). On preprod, exact-address searches still returned unspent outputs created before that window, with `BlockRef` null. `ReadUtxosAsync` returned such an output with `BlockRef` null. For a transaction from before that window, `ReadTxAsync` threw `UtxorpcException` with `Kind.NotFound`, the same error as for an unknown hash (tested with the all-zero hash).
+
+In both API versions, Dolos v1.6.3 ignored both the field mask and the page size on `SearchUtxos` and sent every match in one message. The v1beta response size did not change with page size 1 or with either tested mask. Page size 10 still exceeded the 4 MB limit. On v1beta, it ignored the mask on `ReadUtxos` too, and a `ReadTx` mask of `tx.native_bytes` returned an empty response. Masks did trim `FetchBlock`.
 
 In the `FollowTip` sample, Dingo v0.94.1 started with `Apply` and sent no `Reset`; Dolos v1.6.3 sent `Reset` and then applied that tip block.
 
