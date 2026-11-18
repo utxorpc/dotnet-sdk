@@ -11,7 +11,7 @@ internal sealed class FakeSyncV1Alpha(FakeState state) : Alpha.Sync.SyncService.
     public override Task<Alpha.Sync.ReadTipResponse> ReadTip(Alpha.Sync.ReadTipRequest request, ServerCallContext context)
     {
         state.Enter(context);
-        return Task.FromResult(new Alpha.Sync.ReadTipResponse { Tip = new() { Slot = 42 } });
+        return Task.FromResult(state.OmitTip ? new Alpha.Sync.ReadTipResponse() : new Alpha.Sync.ReadTipResponse { Tip = new() { Slot = 42 } });
     }
 
     /// <summary>Answers with the configured parsed vector.</summary>
@@ -85,7 +85,7 @@ internal sealed class FakeSyncV1Beta(FakeState state) : Beta.Sync.SyncService.Sy
     public override Task<Beta.Sync.ReadTipResponse> ReadTip(Beta.Sync.ReadTipRequest request, ServerCallContext context)
     {
         state.Enter(context);
-        return Task.FromResult(new Beta.Sync.ReadTipResponse { Tip = new() { Slot = 42 } });
+        return Task.FromResult(state.OmitTip ? new Beta.Sync.ReadTipResponse() : new Beta.Sync.ReadTipResponse { Tip = new() { Slot = 42 } });
     }
 
     /// <summary>Answers with the configured parsed vector.</summary>

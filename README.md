@@ -325,7 +325,7 @@ builder.Services.AddHealthChecks().Add(new HealthCheckRegistration("preprod",
     null, null, TimeSpan.FromSeconds(5)));
 ```
 
-The check reads the v1beta tip, falling back to v1alpha when v1beta is unsupported, and reports `tip slot N` or the registration's failure status with the error. Every check tries v1beta again. The time limit also covers a server that accepts the connection and never answers.
+The check reads the v1beta tip, falling back to v1alpha when v1beta is unsupported, and reports `tip slot N` on success. If the tip is missing or the call fails, it reports the registration's failure status (`Unhealthy` without a registration) with a description and any call exception. Every check tries v1beta again. The time limit also covers a server that accepts the connection and never answers.
 
 ### In the browser (Blazor WebAssembly)
 

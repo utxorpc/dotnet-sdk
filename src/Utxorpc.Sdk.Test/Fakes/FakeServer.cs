@@ -50,6 +50,8 @@ internal sealed class FakeState
     public ConcurrentQueue<IMessage> Requests { get; } = new();
     /// <summary>Gets or sets whether the second search page waits until cancellation.</summary>
     public bool HoldSecondPage { get; set; }
+    /// <summary>Gets or sets whether ReadTip returns no chain tip.</summary>
+    public bool OmitTip { get; set; }
     /// <summary>Gets or sets a status returned instead of an answer.</summary>
     public StatusCode? FailWith { get; set; }
     /// <summary>Gets or sets a method-name substring limiting the configured failure.</summary>
