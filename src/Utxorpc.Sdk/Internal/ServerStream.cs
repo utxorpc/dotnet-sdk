@@ -94,6 +94,11 @@ internal static class ServerStream
                             skip--;
                             continue;
                         }
+                        else if (TStream.PerTransaction && (action is StreamAction.Apply or StreamAction.Idle) && window.Find(block) is { Leaving: false } sent && sent != replay)
+                        {
+                            // Keep placing after a replay of a sent intersect point.
+                            continue;
+                        }
                         else
                         {
                             Window<T>.Entry? chosen = window.FindBelow(block.Height);

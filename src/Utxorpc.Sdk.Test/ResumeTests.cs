@@ -292,11 +292,14 @@ public sealed class ResumeTests(ITestOutputHelper output) : ClientTestBase
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ABreakInsideABlockLosesAndRepeatsNothing(bool alpha)
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ABreakInsideABlockLosesAndRepeatsNothing(bool alpha, bool replayIntersect)
     {
-        Script(alpha, [W(1, 1), W(2, 2), StatusCode.Unavailable], [W(2, 2), W(2, 3), W(2, 4), W(3, 5)]);
+        object[] resumed = [W(2, 2), W(2, 3), W(2, 4), W(3, 5)];
+        Script(alpha, [W(1, 1), W(2, 2), W(2, 3), StatusCode.Unavailable], replayIntersect ? [W(1, 1), .. resumed] : resumed);
         using UtxorpcClient client = Client();
         Assert.Equal(["a1", "a2", "a3", "a4", "a5"], Names(await Watch(client, alpha, 5)));
         Points(1);
@@ -305,12 +308,15 @@ public sealed class ResumeTests(ITestOutputHelper output) : ClientTestBase
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ARollbackWhileDisconnectedUndoesWhatWasApplied(bool alpha)
+    public async Task AnIdleAtTheIntersectDoesNotUndoTransactionsOrRestartTheCount(bool alpha)
     {
-        Script(alpha, [W(1, 1), W(2, 2), W(2, 3), W(3, 4), StatusCode.Unavailable], [W(2, 5, fork: true)]);
+        Beta.Watch.WatchTxResponse idle = W(2, 0, "idle");
+        Script(alpha, [W(1, 1), idle, W(3, 3), StatusCode.Unavailable], [idle, StatusCode.Unavailable], [idle, W(3, 3), W(3, 4), W(4, 5)]);
         using UtxorpcClient client = Client();
-        Assert.Equal(["a1", "a2", "a3", "a4", "u4", "u3", "u2", "a5"], Names(await Watch(client, alpha, 8)));
+        Assert.Equal(["a1", "i2", "a3", "a4", "a5"], Names(await Watch(client, alpha, 5)));
         Points(2, 1);
+        Assert.Equal(2, time.Delays.Count);
+        Assert.InRange(time.Delays[1].TotalSeconds, 1.6 * 0.8, 1.6 * 1.2);
     }
 
     [Theory]
@@ -318,12 +324,44 @@ public sealed class ResumeTests(ITestOutputHelper output) : ClientTestBase
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public async Task AnUndoDropsOnlyItsTransaction(bool alpha, bool deeper)
+    public async Task ARollbackWhileDisconnectedUndoesWhatWasApplied(bool alpha, bool replayIntersect)
     {
-        Script(alpha, [W(1, 1), W(2, 2), W(3, 3), W(3, 4), W(3, 3, "undo"), StatusCode.Unavailable], [W(deeper ? 2UL : 3UL, 5, fork: true)]);
+        Script(alpha, [W(1, 1), W(2, 2), W(2, 3), W(3, 4), StatusCode.Unavailable],
+            replayIntersect ? [W(2, 2), W(2, 3), W(3, 5, fork: true)] : [W(2, 5, fork: true)]);
         using UtxorpcClient client = Client();
-        Assert.Equal(deeper ? ["a1", "a2", "a3", "a4", "u3", "u4", "u2", "a5"] : ["a1", "a2", "a3", "a4", "u3", "u4", "a5"], Names(await Watch(client, alpha, deeper ? 8 : 7)));
+        string[] expected = replayIntersect ? ["a1", "a2", "a3", "a4", "u4", "a5"] : ["a1", "a2", "a3", "a4", "u4", "u3", "u2", "a5"];
+        Assert.Equal(expected, Names(await Watch(client, alpha, expected.Length)));
         Points(2, 1);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    public async Task AnUndoDropsOnlyItsTransaction(bool alpha, bool deeper, bool replayIntersect)
+    {
+        object[] before = [W(2, 2), W(3, 3), W(3, 4), W(3, 3, "undo"), StatusCode.Unavailable];
+        Beta.Watch.WatchTxResponse fork = W(deeper ? 2UL : 3UL, 5, fork: true);
+        Script(alpha, replayIntersect ? before : [W(1, 1), .. before], replayIntersect ? [W(2, 2), fork] : [fork]);
+        using UtxorpcClient client = Client();
+        string[] expected = deeper ? ["a2", "a3", "a4", "u3", "u4", "u2", "a5"] : ["a2", "a3", "a4", "u3", "u4", "a5"];
+        if (!replayIntersect) expected = ["a1", .. expected];
+        Assert.Equal(expected, Names(await Watch(client, alpha, expected.Length)));
+        Points(replayIntersect ? [2UL] : [2UL, 1UL]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AReplayAtAnOlderIntersectPreservesItsTransactions(bool alpha)
+    {
+        Script(alpha, [W(1, 1), W(2, 2), W(3, 3), W(4, 4), StatusCode.Unavailable], [W(2, 2), W(3, 5, fork: true)]);
+        using UtxorpcClient client = Client();
+        Assert.Equal(["a1", "a2", "a3", "a4", "u4", "u3", "a5"], Names(await Watch(client, alpha, 7)));
+        Points(3, 2, 1);
     }
 
     [Theory]
