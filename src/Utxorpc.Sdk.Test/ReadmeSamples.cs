@@ -1,3 +1,4 @@
+using System.Numerics;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Microsoft.AspNetCore.Builder;
@@ -20,6 +21,19 @@ internal static class ReadmeSamples
         {
             if (++events == 5) break;
         }
+    }
+
+    internal static void BigIntAmount()
+    {
+        static BigInteger ToBigInteger(Beta.Cardano.BigInt value) => value.BigIntCase switch
+        {
+            Beta.Cardano.BigInt.BigIntOneofCase.Int => value.Int,
+            Beta.Cardano.BigInt.BigIntOneofCase.BigUInt => new BigInteger(value.BigUInt.Span, isUnsigned: true, isBigEndian: true),
+            Beta.Cardano.BigInt.BigIntOneofCase.BigNInt => -1 - new BigInteger(value.BigNInt.Span, isUnsigned: true, isBigEndian: true),
+            _ => throw new ArgumentException("No integer value is set.", nameof(value)),
+        };
+
+        Console.WriteLine(ToBigInteger(new Beta.Cardano.BigInt { Int = 42 }));
     }
 
     internal static async Task GeneratedCallsAsync(string[] args, CancellationToken ct)

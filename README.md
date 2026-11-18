@@ -198,7 +198,24 @@ For FollowTip with `ResumeOnFailure`, keep `cardano.header` in the mask even if 
 
 ## Cardano inputs
 
-Addresses go in as raw CIP-19 bytes, and amounts come back as the Spec's `BigInt`. For bech32 addresses (`addr1…`, `addr_test1…`), address parts and big-integer amounts, use [Chrysalis](https://www.nuget.org/packages/Chrysalis), the .NET Cardano library.
+Addresses go in as raw CIP-19 bytes. Use `Chrysalis.Wallet.Models.Addresses.Address` from [Chrysalis 1.7.14-alpha](https://www.nuget.org/packages/Chrysalis/1.7.14-alpha), the .NET Cardano library. For bech32 addresses (`addr1…`, `addr_test1…`), decode with `Address.FromBech32(text).ToBytes()` and encode with `Address.FromBytes(bytes).ToBech32()`. Byron addresses use base58, not bech32; `FromBytes` throws `ArgumentOutOfRangeException` for their bytes. Use `GetPaymentKeyHash()` and `GetStakeKeyHash()` to read the payment and stake credential hashes when present.
+
+To read an amount returned as the Spec's `BigInt`, use .NET's `BigInteger`. Both byte fields are unsigned and big-endian; `big_n_int` stores `-1 - n` for a negative integer `n`. This example uses v1beta; for v1alpha, use `Alpha = Utxorpc.V1Alpha` and replace `Beta` with `Alpha`.
+
+```csharp
+using System.Numerics;
+using Beta = Utxorpc.V1Beta;
+
+static BigInteger ToBigInteger(Beta.Cardano.BigInt value) => value.BigIntCase switch
+{
+    Beta.Cardano.BigInt.BigIntOneofCase.Int => value.Int,
+    Beta.Cardano.BigInt.BigIntOneofCase.BigUInt => new BigInteger(value.BigUInt.Span, isUnsigned: true, isBigEndian: true),
+    Beta.Cardano.BigInt.BigIntOneofCase.BigNInt => -1 - new BigInteger(value.BigNInt.Span, isUnsigned: true, isBigEndian: true),
+    _ => throw new ArgumentException("No integer value is set.", nameof(value)),
+};
+
+Console.WriteLine(ToBigInteger(new Beta.Cardano.BigInt { Int = 42 }));
+```
 
 ## Predicates
 
