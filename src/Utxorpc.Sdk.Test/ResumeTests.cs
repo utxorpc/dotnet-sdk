@@ -253,13 +253,21 @@ public sealed class ResumeTests(ITestOutputHelper output) : ClientTestBase
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public async Task ARollbackWhileDisconnectedYieldsOneReset(bool alpha, bool naming)
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(true, true, true)]
+    public async Task ARollbackWhileDisconnectedYieldsOneReset(bool alpha, bool naming, bool replayIntersect)
     {
-        Script(alpha, [F(1), F(2), F(3), StatusCode.Unavailable], naming ? [F(2, "reset"), F(3, fork: true), F(4, fork: true)] : [F(3, fork: true), F(4, fork: true)]);
+        object[] fork = [F(3, fork: true), F(4, fork: true)];
+        Script(alpha, [F(1), F(2), F(3), StatusCode.Unavailable], (naming, replayIntersect) switch
+        {
+            (_, true) => [F(2, "reset"), F(2), .. fork],
+            (true, false) => [F(2, "reset"), .. fork],
+            _ => fork
+        });
         using UtxorpcClient client = Client();
         List<Beta.Sync.FollowTipResponse> seen = await Follow(client, alpha, 6);
         Assert.Equal(["a1", "a2", "a3", "r2", "a3x", "a4x"], Names(seen));

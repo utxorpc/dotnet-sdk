@@ -86,7 +86,8 @@ internal static class ServerStream
                             placing = false;
                             if (chosen == window.Newest) continue;
                             window.CutAfter(chosen);
-                            skip = 0;
+                            replay = chosen;
+                            skip = 1;
                         }
                         else if ((action is StreamAction.Apply or StreamAction.Idle) && skip > 0 && replay is not null && block.Is(replay.Block))
                         {
