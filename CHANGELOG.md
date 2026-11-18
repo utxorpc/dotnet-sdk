@@ -53,5 +53,7 @@
 
 ### Fixed
 
+- Short stream methods report failed connections as `Kind.Unavailable`, not caller cancellation; FollowTip and WatchTx count failed reconnects toward `ResumeAttempts`.
+- A short stream reports a server-sent `Cancelled` or disposal of its SDK-owned client during a pending read as `UtxorpcException` (`Kind.Other`, `StatusCode.Cancelled`) instead of `OperationCanceledException`.
 - Blocks and FollowTip events without a parsed form are no longer dropped; WatchTx transactions without one no longer throw `InvalidOperationException`.
 - Bare client addresses now prompt you to specify `http://` or `https://`; schemes with no resolver report how to register one.

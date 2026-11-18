@@ -18,6 +18,8 @@
 
 Requires .NET 11. Utxorpc.Sdk is a .NET client for UTxO RPC. One `UtxorpcClient` offers the Utxorpc.Spec package's generated clients for v1alpha and v1beta over one channel.
 
+**Contents:** [Install](#install) · [Quick start](#quick-start) · [Examples](#examples) · [Short methods](#short-methods) · [Field masks and bytes](#field-masks-and-bytes) · [Cardano inputs](#cardano-inputs) · [Predicates](#predicates) · [Both versions](#both-versions) · [Connecting](#connecting) · [Streams and cancellation](#streams-and-cancellation) · [Errors](#errors) · [Message size](#message-size) · [Server compatibility](#server-compatibility) · [Migrating from 1.8.0-alpha](#migrating-from-180-alpha) · [Testing your code](#testing-your-code) · [Telemetry](#telemetry) · [Tests](#tests)
+
 ## Install
 
 ```bash
@@ -371,7 +373,7 @@ using UtxorpcClient resumable = new(resuming);
 
 A reconnect does not yield an event a second time; a server's own repeats still pass through (see [Server compatibility](#server-compatibility)). A payment watcher should de-duplicate by transaction hash. If the chain rolled back while disconnected, FollowTip yields one `Reset` to the chosen point; WatchTx yields `TxUndone` events for transactions removed, newest first, before the new events.
 
-Only transient failures resume (see `UtxorpcException.IsTransient`). `ResumeAttempts` counts reconnect attempts in a row: 10 by default, starting again only when a new event arrives, not on a skipped replay. Waits start at 1 second, grow by 1.6 to 120 seconds, and each varies by ±20%, so no wait exceeds 144 seconds. Ten attempts mean about 3 minutes of waiting.
+Only transient failures resume (see `UtxorpcException.IsTransient`). `ResumeAttempts` counts reconnect attempts in a row, including attempts that fail to connect. The default is 10. The count resets only when a new event arrives, not on a skipped replay. Waits start at 1 second, grow by 1.6 to 120 seconds, and each varies by ±20%, so no wait exceeds 144 seconds. Ten attempts mean about 3 minutes of waiting.
 
 With `ResumeAttempts = null` (also `"ResumeAttempts": null` in configuration), a dead, mistyped or refusing server is retried silently for ever, so cancel the stream or watch the [health check](#health-check).
 
@@ -425,9 +427,9 @@ catch (UtxorpcException e) when (e.Kind == UtxorpcErrorKind.InvalidTx)
 | `Timeout` | The deadline or `DefaultTimeout` passed. | Check the server and choose a suitable deadline. |
 | `Other` | Another failure. | Read `StatusCode` and `Detail`. |
 
-`UtxorpcException` is an `RpcException`, so existing catch blocks still match. Raw generated calls, including their `ReadAllAsync()` streams, throw the plain `RpcException`.
+`UtxorpcException` is an `RpcException`, so existing catch blocks still match. Raw generated calls, including their `ReadAllAsync()` streams, keep gRPC's exceptions. The short stream methods report a failed connection as `UtxorpcException` with `Kind.Unavailable`, just like the short unary methods.
 
-On a channel the SDK creates, cancellation stays `OperationCanceledException`. A caller-supplied channel, or a hook that turns `ThrowOperationCanceledOnCancellation` off, reports gRPC's `Cancelled`, typed `Other` by short methods.
+On a channel the SDK creates, cancelling your token throws `OperationCanceledException`. If you pass separate tokens to the short method and to enumeration, the exception may carry a linked token. A caller-supplied channel, or a hook that turns `ThrowOperationCanceledOnCancellation` off, reports gRPC's `Cancelled`, typed `Other` by short methods.
 
 On `SubmitTxAsync` and `EvalTxAsync` only, an `Unknown` answer maps to `InvalidTx`. `StatusCode` always keeps the original code: `Unknown` may mean the server itself failed, not that the transaction was invalid.
 
@@ -439,9 +441,9 @@ A short method that waits for the network allocates 112 B more (Release) for the
 
 `UtxorpcException.IsTransient(error)` accepts typed or raw errors: it is true for `Unavailable` and for a transport failure reported as `Internal`. A message the client cannot read arrives as `Unavailable` from gRPC but is `Kind.Other` and not transient.
 
-The typed error's `Status.DebugException` is the original `RpcException` (whose own `DebugException` is the transport's), and its `Message` is "Kind: detail" (or "Kind (StatusCode)" for empty detail). Use `IsTransient` instead of testing `DebugException`.
+The typed error's `Status.DebugException` is the `RpcException` carrying the gRPC status. For an internally cancelled stream read, the SDK may recover that status from the call. The message is "Kind: detail" (or "Kind (StatusCode)" for empty detail). Use `IsTransient` instead of testing `DebugException`.
 
-A call that must finish in time gets a deadline: set `DefaultTimeout` for every unary call, or pass `deadline:` to a generated call. When it expires, the call throws `RpcException` with `StatusCode.DeadlineExceeded`: unary calls, streams, single reads and `ResponseHeadersAsync`, with or without retry, on any channel. Short methods report `Kind.Timeout`. On a channel the SDK creates, cancelling your token first throws `OperationCanceledException` (at the same instant, either may win); on your own channel set `ThrowOperationCanceledOnCancellation = true` for that. The rule follows the client's clock and a server that reports the timeout as `DeadlineExceeded`; any other status a server sends for its own timeout arrives unchanged. Only a call with a deadline pays for it: about 250 B per unary call, 104 B per stream and about 130 B per read that has to wait (Release build, .NET 11):
+A call that must finish in time gets a deadline: set `DefaultTimeout` for every unary call, or pass `deadline:` to a generated call. When it expires, the call throws `RpcException` with `StatusCode.DeadlineExceeded`: unary calls, streams, single reads and `ResponseHeadersAsync`, with or without retry, on any channel. Short unary methods report `Kind.Timeout`. On a channel the SDK creates, cancelling your token first throws `OperationCanceledException` (at the same instant, either may win); on your own channel set `ThrowOperationCanceledOnCancellation = true` for that. The rule follows the client's clock and a server that reports the timeout as `DeadlineExceeded`; any other status a server sends for its own timeout arrives unchanged. Only a call with a deadline pays for it: about 250 B per unary call, 104 B per stream and about 130 B per read that has to wait (Release build, .NET 11):
 
 ```csharp
 UtxorpcClientOptions timed = new() { Url = url, DefaultTimeout = TimeSpan.FromSeconds(30) };
@@ -461,7 +463,7 @@ catch (OperationCanceledException)
 }
 ```
 
-Outside a browser, on a channel the SDK creates, a host that does not answer a connection attempt fails with `Unavailable` after 15 s per attempt (3 attempts by default). On your own channel, the handler's `ConnectTimeout` applies if you set one; otherwise, the system's connect timeout applies (about 2 minutes was seen).
+Outside a browser, on a channel the SDK creates, a host that does not answer a connection attempt fails with `Unavailable` after 15 s per attempt (3 attempts by default). On your own channel, the handler's `ConnectTimeout` applies if you set one; otherwise, the system's connect timeout applies (about 2 minutes was seen). If the connection fails, check that the URL scheme matches the server: use `http://` for plaintext or `https://` for TLS.
 
 ## Message size
 
@@ -520,6 +522,10 @@ Checked on preprod on 2026-11-18, for the server versions shown, with v1alpha an
 Other observations as of 2026-11-18 for Dolos v1.6.3 and Dingo v0.94.1 (not checked by the live tests):
 
 Dolos v1.6.3 accepted `DumpHistory` pages of at most 100 blocks. On preprod, 10 blocks were about 0.7–0.8 MB with the parsed form, or 0.09 MB with `native_bytes` only. This version can repeat the tip block, so WatchTx can yield its matching transactions twice.
+
+Dolos v1.6.3 returned a block when `FetchBlock` got its slot with an all-zero hash. Its v1beta `ReadTip` reported height 0 in the tip reference, alongside a nonzero slot and a hash.
+
+In the `FollowTip` sample, Dingo v0.94.1 started with `Apply` and sent no `Reset`; Dolos v1.6.3 sent `Reset` and then applied that tip block.
 
 Dolos v1.6.3 and Dingo v0.94.1 accepted gRPC-Web and allowed cross-origin calls by default. Dingo v0.94.1 compressed responses of 1 KiB or more when the client offered gzip, but its CORS setup hid `Grpc-Encoding`. Browser calls then failed with `Internal` (`Kind.Other`, not transient). To avoid this, disable compression as shown in [In the browser](#in-the-browser-blazor-webassembly).
 

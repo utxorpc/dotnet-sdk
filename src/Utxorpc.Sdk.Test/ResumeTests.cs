@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using Google.Protobuf;
 using Grpc.Core;
 using Utxorpc.Sdk.Test.Fakes;
@@ -16,6 +17,216 @@ namespace Utxorpc.Sdk.Test;
 public sealed class ResumeTests(ITestOutputHelper output) : ClientTestBase
 {
     private readonly InstantTime time = new();
+
+    public static TheoryData<string, bool, bool> ConnectFailures()
+    {
+        TheoryData<string, bool, bool> cases = new();
+        foreach (string failure in new[] { "refused", "unknown host", "server stopped", "connect timeout" })
+            foreach (bool watch in new[] { false, true })
+                foreach (bool resume in new[] { false, true })
+                    cases.Add(failure, watch, resume);
+        return cases;
+    }
+
+    [Theory]
+    [MemberData(nameof(ConnectFailures))]
+    public async Task ConnectFailureMatchesUnaryAndHonorsResumeAttempts(string failure, bool watch, bool resume)
+    {
+        const int resumeAttempts = 2;
+        using Socket? refused = failure == "refused" ? new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) : null;
+        // Reserve the port without listening so the kernel refuses connections and no other test can take it.
+        refused?.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        string url = failure switch
+        {
+            "refused" => $"http://{refused!.LocalEndPoint}",
+            "unknown host" => "http://utxorpc.invalid",
+            _ => server.Url
+        };
+        using StartedCallCounter starts = new();
+        using TimedOutConnectTransport? timeout = failure == "connect timeout" ? new() : null;
+        using UtxorpcClient client = Client(configure: options =>
+        {
+            options.Url = url;
+            options.ResumeOnFailure = resume;
+            options.ResumeAttempts = resumeAttempts;
+            options.ConfigureChannel = channel =>
+            {
+                channel.LoggerFactory = starts;
+                if (timeout is not null) channel.HttpHandler = timeout;
+                else ((SocketsHttpHandler)channel.HttpHandler!).UseProxy = false;
+            };
+        });
+        if (failure == "server stopped")
+        {
+            await DrainStream(client, watch, cancellation.Token, () => false);
+            Assert.Single(server.State.Calls);
+            await server.StopAsync(cancellation.Token);
+        }
+
+        UtxorpcException unary = await Assert.ThrowsAsync<UtxorpcException>(async () =>
+            await client.V1Beta.Sync.ReadTipAsync(cancellationToken: cancellation.Token));
+        Assert.Equal(UtxorpcErrorKind.Unavailable, unary.Kind);
+        int before = starts.Calls;
+        UtxorpcException stream = await Assert.ThrowsAsync<UtxorpcException>(() => DrainStream(client, watch, cancellation.Token));
+        Assert.Equal(unary.Kind, stream.Kind);
+        Assert.Equal(unary.StatusCode, stream.StatusCode);
+        Assert.Equal(UtxorpcException.IsTransient(unary), UtxorpcException.IsTransient(stream));
+        Assert.Equal(1 + (resume ? resumeAttempts : 0), starts.Calls - before);
+        Assert.Equal(resume ? resumeAttempts : 0, time.Delays.Count);
+    }
+
+    public static TheoryData<string, bool, bool> CancellationPhases()
+    {
+        TheoryData<string, bool, bool> cases = new();
+        foreach (string phase in new[] { "before connect", "during connect", "mid-stream" })
+            foreach (bool watch in new[] { false, true })
+                foreach (bool resume in new[] { false, true })
+                    cases.Add(phase, watch, resume);
+        return cases;
+    }
+
+    [Theory]
+    [MemberData(nameof(CancellationPhases))]
+    public async Task CallerCancellationKeepsItsToken(string phase, bool watch, bool resume)
+    {
+        using CancellationTokenSource caller = new();
+        TaskCompletionSource enteredConnect = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using UtxorpcClient client = Client(configure: options =>
+        {
+            options.ResumeOnFailure = resume;
+            options.ConfigureChannel = channel =>
+            {
+                SocketsHttpHandler sockets = (SocketsHttpHandler)channel.HttpHandler!;
+                sockets.UseProxy = false;
+                if (phase != "mid-stream") sockets.ConnectCallback = (_, ct) =>
+                {
+                    enteredConnect.TrySetResult();
+                    return TimedOutConnectTransport.WaitForCancellation(ct);
+                };
+            };
+        });
+        if (phase == "before connect") caller.Cancel();
+        Func<bool>? onEvent = null;
+        if (phase == "mid-stream")
+        {
+            onEvent = () =>
+            {
+                caller.Cancel();
+                return true;
+            };
+        }
+        Task read = DrainStream(client, watch, caller.Token, onEvent);
+        try
+        {
+            if (phase == "during connect")
+            {
+                await enteredConnect.Task.WaitAsync(cancellation.Token);
+                caller.Cancel();
+            }
+            OperationCanceledException error = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => read.WaitAsync(cancellation.Token));
+            Assert.Equal(caller.Token, error.CancellationToken);
+            if (phase == "before connect") Assert.False(enteredConnect.Task.IsCompleted);
+            if (phase == "mid-stream") Assert.Single(server.State.Calls);
+            Assert.Empty(time.Delays);
+        }
+        finally { caller.Cancel(); }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ServerDeadlineAfterFirstEventKeepsItsException(bool watch, bool resume)
+    {
+        if (watch) Script(false, [W(1, 1), StatusCode.DeadlineExceeded]);
+        else Script(false, [F(1), StatusCode.DeadlineExceeded]);
+        using UtxorpcClient client = Client(configure: options => options.ResumeOnFailure = resume);
+        int events = 0;
+        await Assert.ThrowsAsync<OperationCanceledException>(() => DrainStream(client, watch, cancellation.Token, () =>
+        {
+            events++;
+            return true;
+        }));
+        Assert.Equal(1, events);
+        Assert.Single(server.State.Calls);
+        Assert.Empty(time.Delays);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ServerCancelledAfterFirstEventIsTypedAndKeepsTrailers(bool watch, bool resume)
+    {
+        RpcException failure = new(new Status(StatusCode.Cancelled, "stream ended"), new Metadata { { "test-detail", "server trailer" } });
+        if (watch) Script(false, [W(1, 1), failure]);
+        else Script(false, [F(1), failure]);
+        using UtxorpcClient client = Client(configure: options => options.ResumeOnFailure = resume);
+        int events = 0;
+        UtxorpcException error = await Failure(() => DrainStream(client, watch, cancellation.Token, () =>
+        {
+            events++;
+            return true;
+        }), UtxorpcErrorKind.Other);
+        Assert.Equal(StatusCode.Cancelled, error.StatusCode);
+        Assert.Equal("stream ended", error.Detail);
+        Assert.Equal("server trailer", error.Trailers.GetValue("test-detail"));
+        Assert.False(UtxorpcException.IsTransient(error));
+        Assert.Equal(1, events);
+        Assert.Single(server.State.Calls);
+        Assert.Empty(time.Delays);
+    }
+
+    [Fact]
+    public async Task ClientDisposalDuringReadIsTypedAsCancelled()
+    {
+        Script(false, [F(1)]);
+        using UtxorpcClient client = Client();
+        await using IAsyncEnumerator<V1Beta.FollowTipEvent> read = client.V1Beta.Sync.FollowTipAsync(cancellationToken: cancellation.Token).GetAsyncEnumerator();
+        Assert.True(await read.MoveNextAsync());
+        Task<bool> pending = read.MoveNextAsync().AsTask();
+        Assert.False(pending.IsCompleted);
+        client.Dispose();
+        UtxorpcException error = await Failure(() => pending, UtxorpcErrorKind.Other);
+        Assert.Equal(StatusCode.Cancelled, error.StatusCode);
+        Assert.Single(server.State.Calls);
+        Assert.Empty(time.Delays);
+    }
+
+    [Fact]
+    public async Task MidStreamCutCountsFailedReconnects()
+    {
+        const int resumeAttempts = 2;
+        Script(false, [F(1)]);
+        using StartedCallCounter starts = new();
+        using UtxorpcClient client = Client(configure: options =>
+        {
+            options.ResumeAttempts = resumeAttempts;
+            options.ConfigureChannel = channel => channel.LoggerFactory = starts;
+        });
+        await using IAsyncEnumerator<V1Beta.FollowTipEvent> read = client.V1Beta.Sync.FollowTipAsync(cancellationToken: cancellation.Token).GetAsyncEnumerator();
+        Assert.True(await read.MoveNextAsync());
+        Task<bool> pending = read.MoveNextAsync().AsTask();
+        // Stop listening before cutting the open stream; a cancelled shutdown skips the graceful drain.
+        await server.StopAsync(new CancellationToken(canceled: true));
+        UtxorpcException error = await Failure(() => pending);
+        Assert.Equal(StatusCode.Unavailable, error.StatusCode);
+        Assert.Equal(1 + resumeAttempts, starts.Calls);
+        Assert.Equal(resumeAttempts, time.Delays.Count);
+        Assert.Single(server.State.Calls);
+    }
+
+    private static Task DrainStream(UtxorpcClient client, bool watch, CancellationToken token, Func<bool>? onEvent = null) => watch
+        ? Drain(client.V1Beta.Watch.WatchTxAsync(cancellationToken: token), onEvent)
+        : Drain(client.V1Beta.Sync.FollowTipAsync(cancellationToken: token), onEvent);
+
+    private static async Task Drain<T>(IAsyncEnumerable<T> stream, Func<bool>? onEvent)
+    {
+        await foreach (T _ in stream)
+            if (onEvent is not null && !onEvent()) return;
+    }
 
     [Fact]
     public async Task OffByDefaultTheFailureIsThrown()
@@ -143,7 +354,7 @@ public sealed class ResumeTests(ITestOutputHelper output) : ClientTestBase
     [Fact]
     public async Task ResumeAttemptsLimitsTheTries()
     {
-        Script(false, [F(1), F(2), StatusCode.Unavailable], [StatusCode.Unavailable]);
+        Script(false, [F(1), F(2), StatusCode.Unavailable], [StatusCode.Unavailable], [StatusCode.Unavailable], [StatusCode.NotFound]);
         using UtxorpcClient client = Client(configure: options => options.ResumeAttempts = 2);
         await Failure(() => Follow(client, false, 3));
         Assert.Equal(3, server.State.Calls.Count);

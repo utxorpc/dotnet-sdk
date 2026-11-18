@@ -67,6 +67,12 @@ internal static class ServerStream
                     bool next;
                     try { next = await call.ResponseStream.MoveNext(cancellationToken).ConfigureAwait(false); }
                     catch (RpcException exception) { nextFailure = exception; break; }
+                    catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        nextFailure = ReadFailure(call, exception);
+                        if (nextFailure is null) throw;
+                        break;
+                    }
                     if (!next) yield break;
                     T message = call.ResponseStream.Current;
                     bool readable = TStream.Read(message, out StreamAction action, out ChainBlock block);
@@ -205,9 +211,35 @@ internal static class ServerStream
             {
                 throw Errors.From(exception);
             }
+            catch (OperationCanceledException exception) when (TStream.TypedErrors && !cancellationToken.IsCancellationRequested)
+            {
+                RpcException? failure = ReadFailure(call, exception);
+                if (failure is null) throw;
+                throw Errors.From(failure);
+            }
             if (!next) yield break;
             yield return TStream.Map(call.ResponseStream.Current);
         }
+    }
+
+    private static RpcException? ReadFailure<T>(AsyncServerStreamingCall<T> call, OperationCanceledException exception)
+    {
+        // grpc-dotnet can cancel a pending read while cleaning up a failed connection. The real status is already set.
+        Status status;
+        try { status = call.GetStatus(); }
+        catch (InvalidOperationException) { status = Status.DefaultSuccess; }
+        if (status.StatusCode == StatusCode.DeadlineExceeded) return null; // Keep the original deadline exception.
+        if (status.StatusCode == StatusCode.OK)
+            return new RpcException(new Status(StatusCode.Unavailable, "The stream failed without a gRPC failure status.", exception));
+
+        Metadata trailers;
+        try { trailers = call.GetTrailers(); }
+        catch (Exception error) when (error is InvalidOperationException or ArgumentException or FormatException)
+        {
+            // A failed connection has no trailers; malformed trailers must not hide the call status either.
+            trailers = Metadata.Empty;
+        }
+        return new RpcException(status, trailers);
     }
 }
 

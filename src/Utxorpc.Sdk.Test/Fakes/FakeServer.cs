@@ -31,6 +31,7 @@ internal sealed class FakeState
         object[] script = StreamScripts[Math.Min(Interlocked.Increment(ref streamScript) - 1, StreamScripts.Count - 1)];
         foreach (object step in script)
         {
+            if (step is RpcException error) throw error;
             if (step is StatusCode code) throw new RpcException(new Status(code, FailDetail));
             if (ReferenceEquals(step, Abort))
             {
@@ -134,6 +135,9 @@ internal sealed class FakeServer(WebApplication app, FakeState state, string url
         string url = server.Features.Get<IServerAddressesFeature>()!.Addresses.Single();
         return new FakeServer(app, state, url);
     }
+
+    /// <summary>Stops listening without disposing the client using this server.</summary>
+    public Task StopAsync(CancellationToken cancellationToken) => app.StopAsync(cancellationToken);
 
     /// <summary>Stops the application and releases its listener.</summary>
     public ValueTask DisposeAsync() => app.DisposeAsync();
