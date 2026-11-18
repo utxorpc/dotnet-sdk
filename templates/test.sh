@@ -11,6 +11,8 @@ if [ -e "$canary" ]; then canary=; else echo '{}' > "$canary"; fi
 trap 'rm -rf "$work" ${canary:+"$canary"}' EXIT
 dotnet pack "$root/src/Utxorpc.Sdk/Utxorpc.Sdk.csproj" --configuration Release --output "$work/feed"
 dotnet pack "$root/templates/Utxorpc.Templates.csproj" --configuration Release -warnaserror --output "$work/feed"
+unzip -Z1 "$work"/feed/Utxorpc.Sdk.*.nupkg | grep -Fqx 'analyzers/dotnet/cs/Utxorpc.Sdk.Analyzers.dll'
+unzip -Z1 "$work"/feed/Utxorpc.Sdk.*.nupkg | grep -Fqx 'analyzers/dotnet/cs/Utxorpc.Sdk.CodeFixes.dll'
 for package in "$work"/feed/*.nupkg; do
   unzip -Z1 "$package" | grep -qx icon.png
   unzip -p "$package" README.md | grep -q 'public/logo-dark.svg'
