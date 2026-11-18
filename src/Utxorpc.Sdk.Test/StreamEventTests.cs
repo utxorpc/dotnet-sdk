@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Grpc.Core;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Utxorpc.Sdk.V1Beta;
@@ -12,6 +13,28 @@ namespace Utxorpc.Sdk.Test;
 [Trait("Category", "Unit")]
 public sealed class StreamEventTests
 {
+    /// <summary>Types an internal read cancellation even when the status or trailers are unavailable.</summary>
+    [Theory]
+    [InlineData(null, StatusCode.Unavailable, UtxorpcErrorKind.Unavailable, true)]
+    [InlineData(StatusCode.OK, StatusCode.Unavailable, UtxorpcErrorKind.Unavailable, true)]
+    [InlineData(StatusCode.Cancelled, StatusCode.Cancelled, UtxorpcErrorKind.Other, false)]
+    public async Task InternallyCancelledReadUsesAvailableStatus(StatusCode? callStatus, StatusCode expectedStatus, UtxorpcErrorKind kind, bool transient)
+    {
+        AllocationTests.StubChannel channel = new();
+        channel.Invoker.Cancelled = true;
+        channel.Invoker.StreamStatus = callStatus is StatusCode code ? new Status(code, "fake stream status") : null;
+        channel.Invoker.StreamTrailersUnreadable = true;
+        using UtxorpcClient client = new(channel);
+        UtxorpcException error = await Assert.ThrowsAsync<UtxorpcException>(async () =>
+        {
+            await foreach (FollowTipEvent _ in client.V1Beta.Sync.FollowTipAsync()) Assert.Fail("The read should fail before yielding an event.");
+        });
+        Assert.Equal(kind, error.Kind);
+        Assert.Equal(expectedStatus, error.StatusCode);
+        Assert.Equal(transient, UtxorpcException.IsTransient(error));
+        Assert.Empty(error.Trailers);
+    }
+
     private static Type[] Unions() => typeof(UtxorpcClient).Assembly.GetExportedTypes()
         .Where(type => type.IsDefined(typeof(UnionAttribute))).OrderBy(type => type.FullName, StringComparer.Ordinal).ToArray();
 

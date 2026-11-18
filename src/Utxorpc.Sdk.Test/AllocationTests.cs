@@ -404,6 +404,8 @@ public sealed class AllocationTests(ITestOutputHelper output)
         internal Action? CompleteResponse;
         internal object[] StreamMessages = [];
         internal int StreamLength = 3, StreamCalls, StreamDisposals;
+        internal Status? StreamStatus = Status.DefaultSuccess;
+        internal bool StreamTrailersUnreadable;
         private static readonly Task<Metadata> Headers = Task.FromResult(Metadata.Empty);
         /// <summary>Records headers and returns the cached completed response.</summary>
         public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(
@@ -429,7 +431,9 @@ public sealed class AllocationTests(ITestOutputHelper output)
         {
             StreamCalls++;
             return new(new StubReader<TResponse>(StreamMessages, Cancelled ? -1 : StreamLength), static _ => Headers,
-                static _ => Status.DefaultSuccess, static _ => Metadata.Empty, static state => ((StubInvoker)state).StreamDisposals++, this);
+                static state => ((StubInvoker)state).StreamStatus ?? throw new InvalidOperationException("The stream has no status."),
+                static state => ((StubInvoker)state).StreamTrailersUnreadable ? throw new InvalidOperationException("The stream has no readable trailers.") : Metadata.Empty,
+                static state => ((StubInvoker)state).StreamDisposals++, this);
         }
         /// <summary>Rejects client streams, which these unary measurements do not use.</summary>
         public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(

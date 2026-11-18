@@ -427,9 +427,9 @@ catch (UtxorpcException e) when (e.Kind == UtxorpcErrorKind.InvalidTx)
 | `Timeout` | The deadline or `DefaultTimeout` passed. | Check the server and choose a suitable deadline. |
 | `Other` | Another failure. | Read `StatusCode` and `Detail`. |
 
-`UtxorpcException` is an `RpcException`, so existing catch blocks still match. Raw generated calls, including their `ReadAllAsync()` streams, keep gRPC's exceptions. The short stream methods report a failed connection as `UtxorpcException` with `Kind.Unavailable`, just like the short unary methods.
+`UtxorpcException` is an `RpcException`, so existing catch blocks still match. Raw generated calls, including their `ReadAllAsync()` streams, keep gRPC's exceptions. With the SDK's default handler, short stream and unary methods report a failed connection as `UtxorpcException` with `Kind.Unavailable`.
 
-On a channel the SDK creates, cancelling your token throws `OperationCanceledException`. If you pass separate tokens to the short method and to enumeration, the exception may carry a linked token. A caller-supplied channel, or a hook that turns `ThrowOperationCanceledOnCancellation` off, reports gRPC's `Cancelled`, typed `Other` by short methods.
+On a channel the SDK creates, cancelling your token throws `OperationCanceledException`. If you pass separate tokens to the short method and to enumeration, the exception may carry a linked token. A caller-supplied channel, or a hook that turns `ThrowOperationCanceledOnCancellation` off, reports gRPC's `Cancelled`, typed `Other` by short methods. A short stream also reports a server-sent `Cancelled` or disposing the client while a read is pending on a channel the SDK creates as `UtxorpcException` with `Kind.Other`.
 
 On `SubmitTxAsync` and `EvalTxAsync` only, an `Unknown` answer maps to `InvalidTx`. `StatusCode` always keeps the original code: `Unknown` may mean the server itself failed, not that the transaction was invalid.
 
@@ -463,7 +463,7 @@ catch (OperationCanceledException)
 }
 ```
 
-Outside a browser, on a channel the SDK creates, a host that does not answer a connection attempt fails with `Unavailable` after 15 s per attempt (3 attempts by default). On your own channel, the handler's `ConnectTimeout` applies if you set one; otherwise, the system's connect timeout applies (about 2 minutes was seen). If the connection fails, check that the URL scheme matches the server: use `http://` for plaintext or `https://` for TLS.
+Outside a browser, the SDK's default handler reports `Unavailable` after 15 s per connection attempt if the host does not answer (3 attempts by default for unary calls that can retry). With a custom `ConnectCallback` or `HttpClient` set through `ConfigureChannel`, a connect timeout reported by the handler as cancellation gives a short stream `Kind.Other` (`StatusCode.Cancelled`). That error is not transient, so the stream does not resume. On your own channel, the handler's `ConnectTimeout` applies if you set one; otherwise, the system's connect timeout applies (about 2 minutes was seen). If the connection fails, check that the URL scheme matches the server: use `http://` for plaintext or `https://` for TLS.
 
 ## Message size
 

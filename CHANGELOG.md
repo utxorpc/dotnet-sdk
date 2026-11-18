@@ -42,6 +42,7 @@
 - Targets net11.0 only. On .NET 10, stay on 1.8.0-alpha or use the Spec package's generated clients over your own `GrpcChannel`.
 - Uses one channel for all services and both versions.
 - Cancelling with a token throws `OperationCanceledException` on channels the SDK creates. An expired deadline throws `RpcException` with `DeadlineExceeded` on every call, its headers included.
+- Short streams report a server-sent `Cancelled` or disposing the client while a read is pending on a channel the SDK creates as `UtxorpcException` (`Kind.Other`, `StatusCode.Cancelled`). With the SDK's default handler, a failed connection gives `Kind.Unavailable`; FollowTip and WatchTx count failed reconnects toward `ResumeAttempts`.
 - References Utxorpc.Spec 0.19.2-alpha, Grpc.Net.Client 2.85.0, Grpc.Net.Client.Web 2.85.0, Google.Protobuf 3.36.2 and Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions 11.0.0 directly.
 - Includes package license and repository metadata.
 
@@ -53,7 +54,5 @@
 
 ### Fixed
 
-- Short stream methods report failed connections as `Kind.Unavailable`, not caller cancellation; FollowTip and WatchTx count failed reconnects toward `ResumeAttempts`.
-- A short stream reports a server-sent `Cancelled` or disposal of its SDK-owned client during a pending read as `UtxorpcException` (`Kind.Other`, `StatusCode.Cancelled`) instead of `OperationCanceledException`.
 - Blocks and FollowTip events without a parsed form are no longer dropped; WatchTx transactions without one no longer throw `InvalidOperationException`.
 - Bare client addresses now prompt you to specify `http://` or `https://`; schemes with no resolver report how to register one.
