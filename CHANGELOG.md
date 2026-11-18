@@ -41,6 +41,11 @@
 
 - Targets net11.0 only. On .NET 10, stay on 1.8.0-alpha or use the Spec package's generated clients over your own `GrpcChannel`.
 - Uses one channel for all services and both versions.
+- SDK-created channels retry unary calls that fail with `Unavailable` (except `SubmitTx`) up to 3 attempts in all by default; outside a browser, the default handler pings after 60 s without incoming data while a call is open and uses a 15 s connect timeout.
+- Client-wide header names must be valid gRPC metadata keys instead of HTTP header names.
+- By default, the `FollowTipAsync` short method throws `InvalidOperationException` for messages without a known action instead of skipping them.
+- The `SubmitTxAsync` short method takes one raw transaction at a time; `WaitForTxAsync` takes transaction hashes instead of output references.
+- `SearchAllUtxosAsync` and `DumpAllHistoryAsync` yield items across all pages in place of the old `SearchUtxosAsync` and `DumpHistoryAsync` wrapper methods; the generated calls still read one page.
 - Cancelling with a token throws `OperationCanceledException` on channels the SDK creates. An expired deadline throws `RpcException` with `DeadlineExceeded` on every call, its headers included.
 - Short streams report a server-sent `Cancelled` or disposing the client while a read is pending on a channel the SDK creates as `UtxorpcException` (`Kind.Other`, `StatusCode.Cancelled`). With the SDK's default handler, a failed connection gives `Kind.Unavailable`; FollowTip and WatchTx count failed reconnects toward `ResumeAttempts`.
 - References Utxorpc.Spec 0.19.2-alpha, Grpc.Net.Client 2.85.0, Grpc.Net.Client.Web 2.85.0, Google.Protobuf 3.36.2 and Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions 11.0.0 directly.
