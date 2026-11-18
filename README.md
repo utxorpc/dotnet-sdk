@@ -104,13 +104,11 @@ The Submit example spends nothing unless you pass a transaction you signed yours
 ### Worker template
 
 ```bash
-dotnet new install Utxorpc.Templates::2.0.0-alpha
+dotnet new install Utxorpc.Templates@2.0.0-alpha
 dotnet new utxorpc-worker --name MyIndexer --url http://localhost:50051
 ```
 
 This creates the Worker example as your own project, referencing this package.
-
-In .NET SDK 11.0.100, the `::` separator is deprecated in favour of `@`: `dotnet new install Utxorpc.Templates@2.0.0-alpha`.
 
 ## Short methods
 

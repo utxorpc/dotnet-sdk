@@ -16,7 +16,7 @@ public sealed class ReadmeTests
             .InformationalVersion.Split('+')[0];
         string[] readme = File.ReadLines(Path.Combine(Docs, "README.md")).Select(line => line.Trim()).ToArray();
         Assert.Contains($"dotnet add package Utxorpc.Sdk --version {version}", readme);
-        Assert.Contains($"dotnet new install Utxorpc.Templates::{version}", readme);
+        Assert.Contains($"dotnet new install Utxorpc.Templates@{version}", readme);
     }
 
     /// <summary>Checks every C# sample line against the example programs and the compiled samples.</summary>
