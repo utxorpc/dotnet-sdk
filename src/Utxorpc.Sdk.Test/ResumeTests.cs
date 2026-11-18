@@ -467,12 +467,16 @@ public sealed class ResumeTests(ITestOutputHelper output) : ClientTestBase
     }
 
     [Fact]
-    public async Task CancellationAtTheFailureKeepsTheTypedFailure()
+    public async Task CancellationBeforeResumeKeepsTheTypedFailure()
     {
-        using FramedHandler handler = new(false, 0, cancelOnFailure: cancellation);
+        using CancellationTokenSource caller = new();
+        using FramedHandler handler = new(false, 0, cancelOnFailure: caller);
         using UtxorpcClient client = Client(configure: options => options.ConfigureChannel = channel => channel.HttpHandler = handler);
-        await Failure(() => Follow(client, false, 1));
-        Assert.True(cancellation.IsCancellationRequested);
+        // Cancel after the transport records the failure, before the SDK decides to resume: keep the typed failure without retrying.
+        // If failure and cancellation occur at the same instant, either may win; this test does not pin that race.
+        UtxorpcException error = await Failure(() => DrainStream(client, false, caller.Token));
+        Assert.Equal(StatusCode.Unavailable, error.StatusCode);
+        Assert.True(caller.IsCancellationRequested);
         Assert.Empty(time.Delays);
         Assert.Equal(1, handler.Calls);
     }
@@ -750,11 +754,20 @@ public sealed class ResumeTests(ITestOutputHelper output) : ClientTestBase
             bytes = body.ToArray();
         }
 
-        private sealed class CancelOnDisposeContent(byte[] content, CancellationTokenSource stop) : ByteArrayContent(content)
+        private sealed class CancelOnDisposeResponse(CancellationTokenSource stop) : HttpResponseMessage(HttpStatusCode.OK)
         {
+            private readonly Lock cancelGate = new();
+
             protected override void Dispose(bool disposing)
             {
-                if (disposing) stop.Cancel();
+                // Run on both cleanup paths, even if another thread already started disposing the response.
+                if (disposing)
+                {
+                    lock (cancelGate)
+                    {
+                        if (!stop.IsCancellationRequested) stop.Cancel();
+                    }
+                }
                 base.Dispose(disposing);
             }
         }
@@ -762,12 +775,12 @@ public sealed class ResumeTests(ITestOutputHelper output) : ClientTestBase
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Calls++;
-            HttpResponseMessage response = new(HttpStatusCode.OK)
-            {
-                Version = HttpVersion.Version20,
-                RequestMessage = request,
-                Content = cancelOnFailure is null ? new ByteArrayContent(bytes) : new CancelOnDisposeContent(bytes, cancelOnFailure)
-            };
+            HttpResponseMessage response = cancelOnFailure is null
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                : new CancelOnDisposeResponse(cancelOnFailure);
+            response.Version = HttpVersion.Version20;
+            response.RequestMessage = request;
+            response.Content = new ByteArrayContent(bytes);
             response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/grpc");
             response.TrailingHeaders.Add("grpc-status", cancelOnFailure is null ? "0" : "14");
             return Task.FromResult(response);

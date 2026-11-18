@@ -110,6 +110,8 @@ dotnet new utxorpc-worker --name MyIndexer --url http://localhost:50051
 
 This creates the Worker example as your own project, referencing this package.
 
+In .NET SDK 11.0.100, the `::` separator is deprecated in favour of `@`: `dotnet new install Utxorpc.Templates@2.0.0-alpha`.
+
 ## Short methods
 
 Use `using Utxorpc.Sdk;`. The short methods are in `V1AlphaQueryExtensions`, `V1AlphaSubmitExtensions`, `V1AlphaSyncExtensions`, `V1AlphaWatchExtensions` and their v1beta counterparts, `V1BetaQueryExtensions`, `V1BetaSubmitExtensions`, `V1BetaSyncExtensions`, `V1BetaWatchExtensions`. Names and parameters match in both versions unless marked. `m` is an optional `FieldMask`; every method ends with an optional `CancellationToken`. Raw calls take the corresponding Spec request.
@@ -138,7 +140,7 @@ Use `using Utxorpc.Sdk;`. The short methods are in `V1AlphaQueryExtensions`, `V1
 
 `references` is a `ReadOnlySpan<OutputReference>` (`new OutputReference(txHash, index)`); `point` is a `BlockPoint` (`new BlockPoint(slot, hash)`). Hashes, addresses and transaction bytes are `ReadOnlyMemory<byte>`; `datumHashes` is a `ReadOnlySpan<ReadOnlyMemory<byte>>`. A null predicate in `WatchTxAsync` or `WatchMempoolAsync` sends no filter; null `from` sends no start point. `points` and `intersect` are `ReadOnlySpan<BlockPoint>`, `txHashes` a `ReadOnlySpan<ReadOnlyMemory<byte>>`: write `[a, b]`, or pass an array or a span; values are sent in order, and the server finds the intersection among the points. `BlockPoint` and `OutputReference` compare by value (their bytes, not the array), so they work as `HashSet` and dictionary keys; do not change the bytes while they are keys.
 
-`SearchAllUtxosAsync` and `SearchUtxosByAddressAsync` read every page: page size 0 lets the server choose; a negative size throws. `DumpAllHistoryAsync` requires a page size of at least 1; see [Server compatibility](#server-compatibility) for tested limits and page sizes. A page is one message: keep it under the 4 MB receive limit, use a mask, or raise the limit (see Message size). The server decides whether to include the block at `from`.
+Use `SearchAllUtxosAsync` for a predicate or `SearchUtxosByAddressAsync` to match an exact address. Both read every page: page size 0 lets the server choose; a negative size throws. `DumpAllHistoryAsync` requires a page size of at least 1; see [Server compatibility](#server-compatibility) for tested limits and page sizes. A page is one message: keep it under the 4 MB receive limit, use a mask, or raise the limit (see Message size). The server decides whether to include the block at `from`.
 
 The package includes two compiler warnings:
 
@@ -166,7 +168,7 @@ await foreach (Beta.Sync.AnyChainBlock historicalBlock in client.V1Beta.Sync.Dum
     Console.WriteLine(historicalBlock.NativeBytes.Length);
 ```
 
-Masks select paths from the message in this table, not from the request. The typed builders check field numbers or paths against the Spec's descriptors. See [Server compatibility](#server-compatibility) for tested mask support.
+Masks select paths from the message in this table, not from the request. Use the Spec's `snake_case` proto field names (for example, `native_bytes` or `cardano.header`). The typed builders check field numbers or paths against the Spec's descriptors. See [Server compatibility](#server-compatibility) for tested mask support.
 
 For FollowTip with `ResumeOnFailure`, keep `cardano.header` in the mask even if you only read `native_bytes`. The first applied or undone block without a header turns off resuming. The next connection failure is thrown instead of triggering a reconnect.
 
@@ -427,7 +429,7 @@ catch (UtxorpcException e) when (e.Kind == UtxorpcErrorKind.InvalidTx)
 | `Timeout` | The deadline or `DefaultTimeout` passed. | Check the server and choose a suitable deadline. |
 | `Other` | Another failure. | Read `StatusCode` and `Detail`. |
 
-`UtxorpcException` is an `RpcException`, so existing catch blocks still match. Raw generated calls, including their `ReadAllAsync()` streams, keep gRPC's exceptions. With the SDK's default handler, short stream and unary methods report a failed connection as `UtxorpcException` with `Kind.Unavailable`.
+`UtxorpcException` is an `RpcException`, so existing catch blocks still match. Raw generated calls keep gRPC's exceptions, with no SDK error typing or resume. A raw stream's `ReadAllAsync()` can throw `TaskCanceledException` if the connection fails. With the SDK's default handler, short stream and unary methods report a failed connection as `UtxorpcException` with `Kind.Unavailable`.
 
 On a channel the SDK creates, cancelling your token throws `OperationCanceledException`. If you pass separate tokens to the short method and to enumeration, the exception may carry a linked token. A caller-supplied channel, or a hook that turns `ThrowOperationCanceledOnCancellation` off, reports gRPC's `Cancelled`, typed `Other` by short methods. A short stream also reports a server-sent `Cancelled` or disposing the client while a read is pending on a channel the SDK creates as `UtxorpcException` with `Kind.Other`.
 
@@ -443,7 +445,11 @@ A short method that waits for the network allocates 112 B more (Release) for the
 
 The typed error's `Status.DebugException` is the `RpcException` carrying the gRPC status. For an internally cancelled stream read, the SDK may recover that status from the call. The message is "Kind: detail" (or "Kind (StatusCode)" for empty detail). Use `IsTransient` instead of testing `DebugException`.
 
-A call that must finish in time gets a deadline: set `DefaultTimeout` for every unary call, or pass `deadline:` to a generated call. When it expires, the call throws `RpcException` with `StatusCode.DeadlineExceeded`: unary calls, streams, single reads and `ResponseHeadersAsync`, with or without retry, on any channel. Short unary methods report `Kind.Timeout`. On a channel the SDK creates, cancelling your token first throws `OperationCanceledException` (at the same instant, either may win); on your own channel set `ThrowOperationCanceledOnCancellation = true` for that. The rule follows the client's clock and a server that reports the timeout as `DeadlineExceeded`; any other status a server sends for its own timeout arrives unchanged. Only a call with a deadline pays for it: about 250 B per unary call, 104 B per stream and about 130 B per read that has to wait (Release build, .NET 11):
+A call that must finish in time gets a deadline: set `DefaultTimeout` for every unary call, or pass `deadline:` to a generated call. When it expires, the call throws `RpcException` with `StatusCode.DeadlineExceeded`: unary calls, streams, single reads and `ResponseHeadersAsync`, with or without retry, on any channel. Short unary methods report `Kind.Timeout`. On a channel the SDK creates, cancelling your token first throws `OperationCanceledException` (at the same instant, either may win); on your own channel set `ThrowOperationCanceledOnCancellation = true` for that. The rule follows the client's clock and a server that reports the timeout as `DeadlineExceeded`; any other status a server sends for its own timeout arrives unchanged.
+
+With the SDK's default channel settings, a server-sent `DeadlineExceeded` on a short unary or stream call throws `OperationCanceledException` if the SDK observes the failure more than 1 ms before your own deadline (or when no deadline is set), even if your token was not cancelled. Check your token's `IsCancellationRequested`.
+
+Only a call with a deadline pays for it: about 250 B per unary call, 104 B per stream and about 130 B per read that has to wait (Release build, .NET 11):
 
 ```csharp
 UtxorpcClientOptions timed = new() { Url = url, DefaultTimeout = TimeSpan.FromSeconds(30) };
@@ -463,7 +469,9 @@ catch (OperationCanceledException)
 }
 ```
 
-Outside a browser, the SDK's default handler reports `Unavailable` after 15 s per connection attempt if the host does not answer (3 attempts by default for unary calls that can retry). With a custom `ConnectCallback` or `HttpClient` set through `ConfigureChannel`, a connect timeout reported by the handler as cancellation gives a short stream `Kind.Other` (`StatusCode.Cancelled`). That error is not transient, so the stream does not resume. On your own channel, the handler's `ConnectTimeout` applies if you set one; otherwise, the system's connect timeout applies (about 2 minutes was seen). If the connection fails, check that the URL scheme matches the server: use `http://` for plaintext or `https://` for TLS.
+Outside a browser, the SDK's default handler reports `Unavailable` after 15 s per connection attempt if the host does not answer (3 attempts by default for unary calls that can retry). If the connection fails, check that the URL scheme matches the server: use `http://` for plaintext or `https://` for TLS. A mismatch that shows up as a connect timeout can take the same 15 s per attempt.
+
+With a custom `ConnectCallback` or `HttpClient` set through `ConfigureChannel`, a connect timeout reported by the handler as cancellation gives a short stream `Kind.Other` (`StatusCode.Cancelled`). That error is not transient, so the stream does not resume. On your own channel, the handler's `ConnectTimeout` applies if you set one; otherwise, the system's connect timeout applies (about 2 minutes was seen).
 
 ## Message size
 

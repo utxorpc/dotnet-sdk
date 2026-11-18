@@ -80,6 +80,17 @@ public sealed class ErrorTests : ClientTestBase
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => { while (await events.MoveNextAsync()) { } });
     }
 
+    /// <summary>Preserves server-sent deadline cancellation when the short call has no client deadline.</summary>
+    [Fact]
+    public async Task ServerDeadlineWithoutClientDeadlineStaysOperationCanceled()
+    {
+        server.State.FailWith = StatusCode.DeadlineExceeded;
+        using UtxorpcClient client = new(server.Url);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.V1Beta.Sync.ReadTipAsync(cancellation.Token));
+        Assert.False(cancellation.IsCancellationRequested);
+        Assert.Equal("/utxorpc.v1beta.sync.SyncService/ReadTip", Assert.Single(server.State.Calls).Method);
+    }
+
     /// <summary>Maps the normalized default timeout to Timeout, preserving DeadlineExceeded.</summary>
     [Fact]
     public async Task AnExpiredTimeoutIsTimeout()
