@@ -69,8 +69,10 @@ public sealed class ResumeTests(ITestOutputHelper output) : ClientTestBase
         int before = starts.Calls;
         UtxorpcException stream = await Assert.ThrowsAsync<UtxorpcException>(() => DrainStream(client, watch, cancellation.Token));
         Assert.Equal(unary.Kind, stream.Kind);
-        Assert.Equal(unary.StatusCode, stream.StatusCode);
-        Assert.Equal(UtxorpcException.IsTransient(unary), UtxorpcException.IsTransient(stream));
+        // After shutdown, a pooled connection and a new dial can fail with different raw statuses.
+        if (failure != "server stopped") Assert.Equal(unary.StatusCode, stream.StatusCode);
+        Assert.True(UtxorpcException.IsTransient(unary));
+        Assert.True(UtxorpcException.IsTransient(stream));
         Assert.Equal(1 + (resume ? resumeAttempts : 0), starts.Calls - before);
         Assert.Equal(resume ? resumeAttempts : 0, time.Delays.Count);
     }
