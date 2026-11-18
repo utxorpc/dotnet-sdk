@@ -1,0 +1,21 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/examples/">
+    <Project Path="examples/DependencyInjection/DependencyInjection.csproj" />
+    <Project Path="examples/Query/Query.csproj" />
+    <Project Path="examples/Submit/Submit.csproj" />
+    <Project Path="examples/Sync/Sync.csproj" />
+    <Project Path="examples/Worker/UtxorpcWorker.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Utxorpc.Sdk.Analyzers/Utxorpc.Sdk.Analyzers.csproj" />
+    <Project Path="src/Utxorpc.Sdk.CodeFixes/Utxorpc.Sdk.CodeFixes.csproj" />
+    <Project Path="src/Utxorpc.Sdk.Test/Utxorpc.Sdk.Test.csproj" />
+    <Project Path="src/Utxorpc.Sdk/Utxorpc.Sdk.csproj" />
+  </Folder>
+  <Project Path="templates/Utxorpc.Templates.csproj" />
+</Solution>
