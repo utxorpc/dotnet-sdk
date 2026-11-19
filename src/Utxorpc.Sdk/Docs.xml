@@ -1,0 +1,276 @@
+<docs>
+  <call>
+    <param name="client">The generated client.</param>
+    <param name="cancellationToken">Cancels the call.</param>
+    <exception cref="Utxorpc.Sdk.UtxorpcException">The server or the transport failed; see <see cref="Utxorpc.Sdk.UtxorpcException.Kind"/>.</exception>
+    <exception cref="System.OperationCanceledException">With the SDK's default channel settings, this exception can occur if the caller cancels or the server reports <see cref="Grpc.Core.StatusCode.DeadlineExceeded"/> before the client's deadline or when no client deadline is set. It can also occur if a <c>ConnectCallback</c> or <c>HttpClient</c> set through <c>ConfigureChannel</c> reports a connect timeout as cancellation, or if the client is disposed while a unary call is pending. On a caller-supplied channel, cancelling the token is reported as <see cref="Utxorpc.Sdk.UtxorpcException"/> with <see cref="Grpc.Core.StatusCode.Cancelled"/> and <see cref="Utxorpc.Sdk.UtxorpcErrorKind.Other"/> unless the channel sets <c>ThrowOperationCanceledOnCancellation</c>.</exception>
+  </call>
+  <stream>
+    <param name="client">The generated client.</param>
+    <param name="cancellationToken">Cancels enumeration.</param>
+    <exception cref="Utxorpc.Sdk.UtxorpcException">The server or the transport failed while enumerating; see <see cref="Utxorpc.Sdk.UtxorpcException.Kind"/>.</exception>
+    <exception cref="System.OperationCanceledException">On a channel the SDK creates, enumeration was cancelled by the caller or the server reported <see cref="Grpc.Core.StatusCode.DeadlineExceeded"/>. On a caller-supplied channel the cancellation exception depends on <c>ThrowOperationCanceledOnCancellation</c>.</exception>
+    <remarks><para>Nothing is sent until the sequence is enumerated; failures arrive while enumerating.</para></remarks>
+  </stream>
+  <mask>
+    <param name="fieldMask">The fields to return; null returns all fields.</param>
+  </mask>
+  <address>
+    <param name="exactAddress">The exact raw address bytes, or empty for no exact-address constraint.</param>
+    <param name="paymentPart">The payment part, or empty for no payment constraint.</param>
+    <param name="delegationPart">The delegation part, or empty for no delegation constraint.</param>
+  </address>
+  <asset>
+    <param name="policyId">The policy ID, or empty for no policy constraint.</param>
+    <param name="assetName">The asset name; empty matches any name. For an exact empty name, set <c>AssetName = ByteString.Empty</c> on a v1beta pattern; v1alpha cannot express it.</param>
+  </asset>
+  <predicate>
+    <returns>The predicate.</returns>
+    <exception cref="System.ArgumentException">No non-empty matching part was given.</exception>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change while the predicate is in use.</para></remarks>
+  </predicate>
+  <pattern>
+    <returns>The certificate pattern.</returns>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change while the pattern is in use.</para></remarks>
+  </pattern>
+  <member name="ReadParamsAsync">
+    <summary>Reads the current chain parameters.</summary>
+    <returns>The parameter snapshot.</returns>
+  </member>
+  <member name="ReadUtxosAsync">
+    <summary>Reads the requested outputs.</summary>
+    <param name="references">The output references, in request order.</param>
+    <returns>The outputs returned by the server.</returns>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until the returned task completes.</para></remarks>
+  </member>
+  <member name="SearchAllUtxosAsync">
+    <summary>Reads every matching output across all result pages.</summary>
+    <param name="predicate">The output filter.</param>
+    <param name="pageSize">The number of items per page; 0 lets the server choose.</param>
+    <returns>The matching outputs.</returns>
+    <exception cref="System.ArgumentOutOfRangeException">The page size is negative.</exception>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until enumeration ends.</para></remarks>
+  </member>
+  <member name="SearchUtxosByAddressAsync">
+    <summary>Reads every page of outputs at an exact address.</summary>
+    <param name="address">The exact raw address bytes.</param>
+    <param name="pageSize">The number of items per page; 0 lets the server choose.</param>
+    <returns>The matching outputs.</returns>
+    <exception cref="System.ArgumentOutOfRangeException">The page size is negative.</exception>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until enumeration ends.</para></remarks>
+  </member>
+  <member name="ReadTxAsync">
+    <summary>Reads a transaction.</summary>
+    <param name="txHash">The transaction hash.</param>
+    <returns>The transaction returned by the server.</returns>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until the returned task completes.</para></remarks>
+  </member>
+  <member name="ReadStateAsync">
+    <summary>Reads the requested Cardano ledger state.</summary>
+    <param name="query">The state query.</param>
+    <returns>The state snapshot.</returns>
+  </member>
+  <member name="ReadGenesisAsync">
+    <summary>Reads the chain's genesis configuration.</summary>
+    <returns>The genesis configuration.</returns>
+  </member>
+  <member name="ReadEraSummaryAsync">
+    <summary>Reads the chain's era summaries.</summary>
+    <returns>The era summaries.</returns>
+  </member>
+  <member name="ReadDataAsync">
+    <summary>Reads the requested data.</summary>
+    <param name="datumHashes">The datum hashes, in request order.</param>
+    <returns>The data returned by the server.</returns>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until the returned task completes.</para></remarks>
+  </member>
+  <member name="ReadTipAsync">
+    <summary>Reads the current chain tip.</summary>
+    <returns>The chain tip.</returns>
+  </member>
+  <member name="FetchBlockAsync">
+    <summary>Fetches a block.</summary>
+    <param name="point">The block to fetch.</param>
+    <returns>The block returned by the server.</returns>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until the returned task completes. Write the point as <c>new BlockPoint(slot, hash)</c>; for <c>FetchBlockAsync</c>, a bare <c>new(...)</c> picks the generated call.</para></remarks>
+  </member>
+  <member name="FetchBlockAsync(points)">
+    <summary>Fetches several blocks in one call.</summary>
+    <param name="points">The blocks to fetch, in request order; empty requests none.</param>
+    <returns>The blocks returned by the server.</returns>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until the returned task completes.</para></remarks>
+  </member>
+  <member name="DumpAllHistoryAsync">
+    <summary>Reads every block across history pages.</summary>
+    <param name="from">The starting point; null lets the server choose. Whether its block is included is the server's choice.</param>
+    <param name="pageSize">The number of blocks per page; at least 1.</param>
+    <returns>The blocks returned by the server.</returns>
+    <exception cref="System.ArgumentOutOfRangeException">The page size is less than 1.</exception>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until enumeration ends. Dolos returns no blocks and a token for page size 0. Each page is one gRPC message, so page size times block size must fit the receive limit (4 MB by default); a <c>native_bytes</c> mask makes blocks about eight times smaller.</para></remarks>
+  </member>
+  <member name="FollowTipAsync">
+    <summary>Follows the chain tip as typed apply, undo and reset events.</summary>
+    <param name="from">The intersection point; null sends no intersection.</param>
+    <returns>The tip events.</returns>
+    <exception cref="System.InvalidOperationException">A response has no action this SDK knows; use the generated call to read Spec messages unchanged.</exception>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until enumeration ends. Use <c>new BlockPoint(slot, hash)</c> for a point, or <c>null</c> for the server's current tip. Name <c>cancellationToken</c> to omit the mask.</para></remarks>
+  </member>
+  <member name="FollowTipAsync(intersect)">
+    <summary>Follows the chain from the intersection the server finds among the points.</summary>
+    <param name="intersect">The intersection candidates in request order; empty sends none.</param>
+    <returns>The tip events.</returns>
+    <exception cref="System.InvalidOperationException">A response has no action this SDK knows; use the generated call to read Spec messages unchanged.</exception>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until enumeration ends.</para></remarks>
+  </member>
+  <member name="SubmitTxAsync">
+    <summary>Submits a transaction; the SDK's default retry policy never retries this call.</summary>
+    <param name="tx">The serialized transaction bytes.</param>
+    <returns>The submission response; its <c>Ref</c> is the transaction hash.</returns>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until the returned task completes. Retry behaviour on a caller-owned channel or after <c>ConfigureChannel</c> changes the policy is the caller's responsibility.</para></remarks>
+  </member>
+  <member name="WaitForTxAsync">
+    <summary>Watches a transaction.</summary>
+    <param name="txHash">The transaction hash.</param>
+    <returns>The transaction updates.</returns>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until enumeration ends.</para></remarks>
+  </member>
+  <member name="WaitForTxAsync(txHashes)">
+    <summary>Watches several transactions in one call.</summary>
+    <param name="txHashes">The transaction hashes, in request order; empty requests none.</param>
+    <returns>The transaction updates.</returns>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until enumeration ends.</para></remarks>
+  </member>
+  <member name="ReadMempoolAsync">
+    <summary>Reads the current mempool.</summary>
+    <returns>The mempool snapshot.</returns>
+  </member>
+  <member name="EvalTxAsync">
+    <summary>Evaluates a transaction without submitting it.</summary>
+    <param name="tx">The serialized transaction bytes.</param>
+    <returns>The evaluation report.</returns>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until the returned task completes.</para></remarks>
+  </member>
+  <member name="WatchMempoolAsync">
+    <summary>Watches mempool changes matching a filter, or all changes without one.</summary>
+    <param name="predicate">The transaction filter; null matches every change.</param>
+    <returns>The mempool updates.</returns>
+  </member>
+  <member name="WatchTxAsync">
+    <summary>Watches transactions as typed apply, undo and idle events.</summary>
+    <param name="predicate">The transaction filter; null matches every transaction.</param>
+    <param name="from">The intersection point; null sends no intersection.</param>
+    <returns>The transaction events.</returns>
+    <exception cref="System.InvalidOperationException">A response has no action this SDK knows; use the generated call to read Spec messages unchanged.</exception>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until enumeration ends.</para></remarks>
+  </member>
+  <member name="WatchTxAsync(intersect)">
+    <summary>Watches transactions from the intersection the server finds among the points.</summary>
+    <param name="predicate">The transaction filter; null matches every transaction.</param>
+    <param name="intersect">The intersection candidates in request order; empty sends none.</param>
+    <returns>The transaction events.</returns>
+    <exception cref="System.InvalidOperationException">A response has no action this SDK knows; use the generated call to read Spec messages unchanged.</exception>
+    <remarks><para>Byte memory is wrapped, not copied; it must not change until enumeration ends.</para></remarks>
+  </member>
+  <member name="UtxoPredicate.Match">
+    <summary>Matches an output by address parts, asset parts or both in one match.</summary>
+  </member>
+  <member name="UtxoPredicate.Address">
+    <summary>Matches an output's address.</summary>
+  </member>
+  <member name="UtxoPredicate.Asset">
+    <summary>Matches an output's asset.</summary>
+  </member>
+  <member name="TxPredicate.HasAddress">
+    <summary>Matches any address a transaction touches in inputs, outputs or collateral.</summary>
+  </member>
+  <member name="TxPredicate.MovesAsset">
+    <summary>Matches an asset a transaction moves.</summary>
+  </member>
+  <member name="TxPredicate.Consumes">
+    <summary>Matches one input with the given address parts, asset parts or both.</summary>
+  </member>
+  <member name="TxPredicate.Produces">
+    <summary>Matches one output with the given address parts, asset parts or both.</summary>
+  </member>
+  <member name="TxPredicate.MintsAsset">
+    <summary>Matches an asset a transaction mints or burns.</summary>
+  </member>
+  <member name="oneOutput">
+    <remarks><para>An address plus an asset in one output: <c>Produces</c> or <c>Consumes</c> with both; anywhere in the transaction: <c>AllOf(HasAddress(…), MovesAsset(…))</c>.</para></remarks>
+  </member>
+  <member name="TxPredicate.HasCertificate">
+    <summary>Matches a certificate described by the pattern.</summary>
+    <param name="pattern">The certificate pattern.</param>
+    <returns>The transaction predicate.</returns>
+    <exception cref="System.ArgumentNullException">The pattern is null.</exception>
+    <remarks><para>The pattern is retained, not copied; it must not change while the predicate is in use.</para></remarks>
+  </member>
+  <member name="AllOf">
+    <summary>Matches when all supplied predicates match.</summary>
+    <param name="predicates">The predicates to combine.</param>
+    <returns>The composite predicate.</returns>
+    <exception cref="System.ArgumentException">No predicate was given.</exception>
+    <exception cref="System.ArgumentNullException">A predicate is null.</exception>
+  </member>
+  <member name="AnyOf">
+    <summary>Matches when any supplied predicate matches.</summary>
+    <param name="predicates">The predicates to combine.</param>
+    <returns>The composite predicate.</returns>
+    <exception cref="System.ArgumentException">No predicate was given.</exception>
+    <exception cref="System.ArgumentNullException">A predicate is null.</exception>
+  </member>
+  <member name="Not">
+    <summary>Matches when the supplied predicate does not match.</summary>
+    <param name="predicate">The predicate to negate.</param>
+    <returns>The negated predicate.</returns>
+    <exception cref="System.ArgumentNullException">The predicate is null.</exception>
+  </member>
+  <member name="CertificatePattern.StakeRegistration">
+    <summary>Matches stake registrations, optionally restricted to a key or script hash.</summary>
+    <param name="addrKeyHash">The address key hash, or empty for no key constraint.</param>
+    <param name="scriptHash">The script hash, or empty for no script constraint.</param>
+    <exception cref="System.ArgumentException">Both a key hash and a script hash were given.</exception>
+  </member>
+  <member name="CertificatePattern.StakeDeregistration">
+    <summary>Matches stake deregistrations, optionally restricted to a key or script hash.</summary>
+    <param name="addrKeyHash">The address key hash, or empty for no key constraint.</param>
+    <param name="scriptHash">The script hash, or empty for no script constraint.</param>
+    <exception cref="System.ArgumentException">Both a key hash and a script hash were given.</exception>
+  </member>
+  <member name="CertificatePattern.StakeDelegation">
+    <summary>Matches stake delegations, optionally restricted to a credential, a pool or both.</summary>
+    <param name="addrKeyHash">The address key hash, or empty for no key constraint.</param>
+    <param name="scriptHash">The script hash, or empty for no script constraint.</param>
+    <param name="poolKeyhash">The pool key hash, or empty for any pool.</param>
+    <exception cref="System.ArgumentException">Both a key hash and a script hash were given.</exception>
+  </member>
+  <member name="CertificatePattern.PoolRegistration">
+    <summary>Matches pool registrations, optionally restricted to an operator, a pool or both.</summary>
+    <param name="poolOperator">The pool operator, or empty for any operator.</param>
+    <param name="poolKeyhash">The pool key hash, or empty for any pool.</param>
+  </member>
+  <member name="CertificatePattern.PoolRetirement">
+    <summary>Matches pool retirements, optionally restricted to a pool, an epoch or both.</summary>
+    <param name="poolKeyhash">The pool key hash, or empty for any pool.</param>
+    <param name="epoch">The retirement epoch; 0 matches any epoch.</param>
+  </member>
+  <member name="CertificatePattern.AnyStakeCredential">
+    <summary>Matches any certificate involving the given stake credential hash.</summary>
+    <param name="stakeCredential">The required hash.</param>
+    <exception cref="System.ArgumentException">The hash is empty.</exception>
+  </member>
+  <member name="CertificatePattern.AnyPoolKeyhash">
+    <summary>Matches any certificate involving the given pool.</summary>
+    <param name="poolKeyhash">The required hash.</param>
+    <exception cref="System.ArgumentException">The hash is empty.</exception>
+  </member>
+  <member name="CertificatePattern.AnyDrep">
+    <summary>Matches any certificate involving the given DRep hash.</summary>
+    <param name="drep">The required hash.</param>
+    <exception cref="System.ArgumentException">The hash is empty.</exception>
+  </member>
+  <member name="eventCase">
+    <param name="value">The event case.</param>
+    <exception cref="System.ArgumentNullException">The case holds no message.</exception>
+  </member>
+</docs>

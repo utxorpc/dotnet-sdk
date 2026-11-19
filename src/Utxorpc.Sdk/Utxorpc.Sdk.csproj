@@ -1,24 +1,44 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>Utxorpc.Sdk</PackageId>
-    <Version>1.8.0-alpha</Version>
+    <Version>2.0.0-alpha</Version>
+    <UtxorpcSpecVersion Condition="'$(UtxorpcSpecVersion)' == ''">0.19.2-alpha</UtxorpcSpecVersion>
     <Authors>clark@txpipe.io</Authors>
-    <Company>TxPipe LLC</Company>
-    <PackageDescription>A gRPC interface for UTxO Blockchains</PackageDescription>
-    <RepositoryUrl>https://github.com/utxorpc</RepositoryUrl>
+    <PackageDescription>Requires .NET 11. Client for UTxO RPC (v1alpha and v1beta) over gRPC.</PackageDescription>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageTags>utxorpc;cardano;grpc;blockchain;utxo</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Utxorpc.Spec" Version="0.19.2-alpha" />
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Utxorpc.Spec" Version="$(UtxorpcSpecVersion)" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.85.0" />
+    <PackageReference Include="Grpc.Net.Client.Web" Version="2.85.0" />
+    <PackageReference Include="Google.Protobuf" Version="3.36.2" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="11.0.0" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="../../README.md" pack="true" PackagePath="." />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../Utxorpc.Sdk.Analyzers/Utxorpc.Sdk.Analyzers.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <ProjectReference Include="../Utxorpc.Sdk.CodeFixes/Utxorpc.Sdk.CodeFixes.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <None Include="../Utxorpc.Sdk.Analyzers/bin/$(Configuration)/netstandard2.0/Utxorpc.Sdk.Analyzers.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="../Utxorpc.Sdk.CodeFixes/bin/$(Configuration)/netstandard2.0/Utxorpc.Sdk.CodeFixes.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+  </ItemGroup>
 </Project>

@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <SdkProjectText>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../src/Utxorpc.Sdk/Utxorpc.Sdk.csproj'))</SdkProjectText>
+    <Version>$([System.Text.RegularExpressions.Regex]::Match($(SdkProjectText), '&lt;Version&gt;(.+?)&lt;/Version&gt;').Groups[1].Value)</Version>
+    <Authors>$([System.Text.RegularExpressions.Regex]::Match($(SdkProjectText), '&lt;Authors&gt;(.+?)&lt;/Authors&gt;').Groups[1].Value)</Authors>
+    <TargetFramework>net11.0</TargetFramework>
+    <PackageId>Utxorpc.Templates</PackageId>
+    <PackageType>Template</PackageType>
+    <Title>UTxO RPC templates</Title>
+    <PackageDescription>Project templates for UTxO RPC: dotnet new utxorpc-worker.</PackageDescription>
+    <PackageTags>dotnet-new;templates;utxorpc;cardano</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeContentInPack>true</IncludeContentInPack>
+    <ContentTargetFolders>content</ContentTargetFolders>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <WorkerSource>$(MSBuildThisFileDirectory)../examples/Worker/</WorkerSource>
+    <PackedWorkerProject>$(BaseIntermediateOutputPath)UtxorpcWorker.csproj</PackedWorkerProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../README.md" Pack="true" PackagePath="." />
+    <!-- Only the files named here are packed, so a local settings file beside the example never is. -->
+    <Content Include="$(WorkerSource)Program.cs;$(WorkerSource)Worker.cs;$(WorkerSource)appsettings.json;$(PackedWorkerProject)" PackagePath="content/utxorpc-worker/" />
+    <Content Include="$(WorkerSource).template.config/template.json" PackagePath="content/utxorpc-worker/.template.config/" />
+  </ItemGroup>
+
+  <!-- The packed project references the package at this version instead of the source project. -->
+  <Target Name="WritePackedWorkerProject" BeforeTargets="_GetPackageFiles;GenerateNuspec;AssignTargetPaths">
+    <WriteLinesToFile File="$(PackedWorkerProject)" Overwrite="true" WriteOnlyWhenDifferent="true"
+      Lines="$([System.IO.File]::ReadAllText('$(WorkerSource)UtxorpcWorker.csproj').Replace('ProjectReference Include=&quot;..\..\src\Utxorpc.Sdk\Utxorpc.Sdk.csproj&quot;', 'PackageReference Include=&quot;Utxorpc.Sdk&quot; Version=&quot;$(Version)&quot;'))" />
+  </Target>
+
+</Project>
